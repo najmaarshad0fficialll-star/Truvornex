@@ -49,7 +49,7 @@ async function callAI(systemPrompt, userPrompt) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'HTTP-Referer': 'https://truvornex.com', 'X-Title': 'Truvornex' },
             body: JSON.stringify({
-                model: 'meta-llama/llama-3.3-70b-instruct:free',
+                model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userPrompt },
