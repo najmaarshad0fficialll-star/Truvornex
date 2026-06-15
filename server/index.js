@@ -175,9 +175,9 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.post('/api/ai/chat', async (req, res) => {
-    const apiKey = process.env.DEEPSEEK_API_KEY;
+    const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-        return res.status(503).json({ error: 'AI service not configured. Please add DEEPSEEK_API_KEY to secrets.' });
+        return res.status(503).json({ error: 'AI service not configured. Please add OPENROUTER_API_KEY to secrets.' });
     }
     const { messages, systemPrompt, temperature = 0.7, maxTokens = 2000 } = req.body;
     try {
@@ -941,7 +941,7 @@ app.get('/api/simon/recommendations', async (req, res) => {
 if (isProd) {
     const distPath = path.join(__dirname, '..', 'dist');
     app.use(express.static(distPath));
-    app.get('/{*path}', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+    app.get(/{*path}/, (req, res) => res.sendFile(path.join(distPath, 'index.html')));
     initDb().then(() => {
         app.listen(PORT, '0.0.0.0', () => console.log(`Truvornex running on port ${PORT}`));
     });
