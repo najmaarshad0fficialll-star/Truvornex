@@ -112,7 +112,7 @@ export default function Dashboard() {
 
     const runSimonReport = async () => {
         if (!simonStatus().configured) {
-            setSimonReport('**Simon AI is not configured.** Add `DEEPSEEK_API_KEY` to your environment variables to activate hyper-intelligent platform analysis.');
+            setSimonReport('**Simon AI is not configured.** Add `OPENROUTER_API_KEY` to your environment variables to activate hyper-intelligent platform analysis.');
             return;
         }
         setSimonLoading(true);
