@@ -3,7 +3,7 @@ import { computeTrustScore, optimizeSchedule, predictRepeatBookings, TRUST_TIER_
 import { Send, Bot, User, Sparkles, Loader2, TrendingUp, CalendarDays, DollarSign, ArrowRight, CheckCircle, AlertTriangle, RefreshCw, Cpu } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { format, subDays, startOfMonth } from 'date-fns';
-import { chatDeepSeek, isConfigured } from '@/lib/deepseek';
+import { chatOpenRouter as chatDeepSeek, isConfigured } from '@/lib/openrouter';
 
 const QUICK_PROMPTS = [
     'What should I prioritize today to maximize earnings?',
@@ -133,7 +133,7 @@ You are a proactive, data-driven business advisor. Give specific, numbered actio
         if (!isConfigured()) {
             setMessages(prev => [...prev, {
                 role: 'assistant',
-                content: '**Simon Copilot needs DeepSeek configured.** Add `DEEPSEEK_API_KEY` to your environment variables to activate AI responses.',
+                content: '**Simon Copilot needs OpenRouter configured.** Add `OPENROUTER_API_KEY` to your environment variables to activate AI responses.',
             }]);
             setLoading(false);
             return;
@@ -177,7 +177,7 @@ You are a proactive, data-driven business advisor. Give specific, numbered actio
                             </h1>
                             <span className="flex items-center gap-1">
                                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                <span className="text-[9px]" style={{ color: 'var(--color-text-subtle)' }}>DeepSeek · Live</span>
+                                <span className="text-[9px]" style={{ color: 'var(--color-text-subtle)' }}>OpenRouter · Live</span>
                             </span>
                         </div>
                         <p className="text-[10px]" style={{ color: 'var(--color-text-subtle)' }}>
@@ -261,7 +261,7 @@ You are a proactive, data-driven business advisor. Give specific, numbered actio
                     </button>
                 </div>
                 <p className="text-center text-[9px] mt-2 tracking-widest" style={{ color: 'var(--color-text-subtle)' }}>
-                    SIMON AI · TRUVORNEX PROVIDER COPILOT · DEEPSEEK
+                    SIMON AI · TRUVORNEX PROVIDER COPILOT · OPENROUTER
                 </p>
             </div>
         </div>
