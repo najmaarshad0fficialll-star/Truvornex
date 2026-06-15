@@ -941,7 +941,7 @@ app.get('/api/simon/recommendations', async (req, res) => {
 if (isProd) {
     const distPath = path.join(__dirname, '..', 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+    app.use((req, res) => res.sendFile(path.join(distPath, 'index.html')));
     initDb().then(() => {
         app.listen(PORT, '0.0.0.0', () => console.log(`Truvornex running on port ${PORT}`));
     });
