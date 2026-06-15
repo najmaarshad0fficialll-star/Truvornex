@@ -8,7 +8,7 @@ import {
     XCircle, AlertTriangle, ArrowUpRight, Download, Clock, Sparkles, Loader2
 } from 'lucide-react';
 import { format, startOfWeek, startOfMonth, subDays, subMonths } from 'date-fns';
-import { chatDeepSeek, isConfigured } from '@/lib/deepseek';
+import { chatOpenRouter as chatDeepSeek, isConfigured } from '@/lib/openrouter';
 import ReactMarkdown from 'react-markdown';
 
 const TABS = ['Overview', 'By Service', 'Loss Tracker', 'Trends'];
@@ -119,7 +119,7 @@ export default function Earnings() {
 
     const getAiInsight = async () => {
         if (!isConfigured()) {
-            setAiInsight('**DeepSeek not configured** — Add `DEEPSEEK_API_KEY` to unlock AI earning insights.');
+            setAiInsight('**OpenRouter not configured** — Add `OPENROUTER_API_KEY` to unlock AI earning insights.');
             return;
         }
         setAiLoading(true);
@@ -308,7 +308,7 @@ Give:
                         </div>
                         <div>
                             <h2 className="font-semibold text-sm" style={{ color: 'var(--color-primary)' }}>Simon's Earnings Analysis</h2>
-                            <p className="text-[10px]" style={{ color: 'var(--color-text-subtle)' }}>Powered by DeepSeek AI</p>
+                            <p className="text-[10px]" style={{ color: 'var(--color-text-subtle)' }}>Powered by OpenRouter AI</p>
                         </div>
                     </div>
                     <button onClick={getAiInsight} disabled={aiLoading}
