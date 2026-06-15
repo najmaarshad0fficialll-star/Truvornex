@@ -42,7 +42,7 @@ const SearchParseSchema = z.object({
 });
 
 async function callAI(systemPrompt, userPrompt) {
-    const key = process.env.DEEPSEEK_API_KEY;
+    const key = process.env.OPENROUTER_API_KEY;
     if (!key) return null;
     try {
         const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
