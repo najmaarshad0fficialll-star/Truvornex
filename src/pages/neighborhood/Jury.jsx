@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ShieldCheck, ThumbsUp, ThumbsDown, Minus, AlertCircle, Star, Loader2, Check } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 
 const VOTE_OPTIONS = [
@@ -28,22 +27,20 @@ export default function Jury() {
 
     const load = async () => {
         setLoading(true);
-        const [dispRes, voteRes] = await Promise.all([
-            supabase.from('disputes')
-                .select('*')
-                .in('status', ['open', 'voting'])
-                .order('created_at', { ascending: false })
-                .limit(20),
-            user
-                ? supabase.from('jury_assignments').select('dispute_id, vote').eq('juror_user_id', user.id)
-                : Promise.resolve({ data: [] }),
-        ]);
-        let d = dispRes.data || [];
-        if (user) d = d.filter(dp => dp.raised_by !== user.id && dp.against_id !== user.id);
-        setDisputes(d);
-        const voteMap = {};
-        (voteRes.data || []).forEach(v => { voteMap[v.dispute_id] = v.vote; });
-        setMyVotes(voteMap);
+        try {
+            const [dispRes, voteRes] = await Promise.all([
+                fetch('/api/disputes').then(r => r.json()).catch(() => ({ data: [] })),
+                user ? fetch('/api/jury-assignments/my').then(r => r.json()).catch(() => ({ data: [] })) : Promise.resolve({ data: [] })
+            ]);
+            let d = dispRes.data || [];
+            if (user) d = d.filter(dp => dp.raised_by !== user.id && dp.against_id !== user.id);
+            setDisputes(d);
+            const voteMap = {};
+            (voteRes.data || []).forEach(v => { voteMap[v.dispute_id] = v.vote; });
+            setMyVotes(voteMap);
+        } catch (e) {
+            console.error('Failed to load disputes', e);
+        }
         setLoading(false);
     };
 
@@ -54,14 +51,17 @@ export default function Jury() {
         if (myVotes[dispute.id]) { toast('Already voted on this dispute'); return; }
         setVoting(dispute.id + choice);
         try {
-            const { error } = await supabase.from('jury_assignments').insert([{
-                dispute_id: dispute.id,
-                juror_user_id: user.id,
-                vote: choice,
-                voted_at: new Date().toISOString(),
-                reward_credits: 1,
-            }]);
-            if (error) throw error;
+            const res = await fetch('/api/jury-assignments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    dispute_id: dispute.id,
+                    vote: choice
+                })
+            });
+            const { error } = await res.json();
+            if (error) throw new Error(error);
             setMyVotes(p => ({ ...p, [dispute.id]: choice }));
             toast.success('Vote recorded — +1 time credit earned');
         } catch (err) { toast.error(err.message || 'Failed to vote'); }
@@ -105,7 +105,7 @@ export default function Jury() {
             {loading ? (
                 <div className="space-y-4">
                     {Array.from({ length: 3 }).map((_, i) => (
-                        <div key={i} className="skeleton-wave h-40 rounded-2xl" />
+                        <div key={i} className="skeleton-wave h-140 rounded-2xl" />
                     ))}
                 </div>
             ) : disputes.length === 0 ? (

@@ -14,7 +14,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 
 const POST_TYPES = {
@@ -69,10 +68,13 @@ function PostComments({ postId, user, replyCount, onCountChange }) {
 
     const load = async () => {
         setLoading(true);
-        const { data } = await supabase
-            .from('post_comments').select('*')
-            .eq('post_id', postId).order('created_at', { ascending: true }).limit(30);
-        if (data) setComments(data);
+        try {
+            const res = await fetch(`/api/post-comments/${postId}`);
+            const { data } = await res.json();
+            if (data) setComments(data);
+        } catch (e) {
+            console.error('Failed to load comments', e);
+        }
         setLoading(false);
     };
 
@@ -84,17 +86,22 @@ function PostComments({ postId, user, replyCount, onCountChange }) {
         setSubmitting(true);
         const comment = {
             post_id: postId, author_email: user.email,
-            author_name: user.user_metadata?.full_name || user.email?.split('@')[0],
+            author_name: user.full_name || user.email?.split('@')[0],
             body: input.trim(), created_at: new Date().toISOString(), id: Date.now(),
         };
         setComments(prev => [...prev, comment]);
         onCountChange && onCountChange(1);
         setInput('');
-        await supabase.from('post_comments').insert([{
-            post_id: postId, author_email: user.email,
-            author_name: user.user_metadata?.full_name || user.email?.split('@')[0],
-            body: input.trim(),
-        }]);
+        try {
+            await fetch('/api/post-comments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ post_id: postId, body: comment.body })
+            });
+        } catch (e) {
+            console.error('Failed to post comment', e);
+        }
         setSubmitting(false);
     };
 
@@ -119,7 +126,7 @@ function PostComments({ postId, user, replyCount, onCountChange }) {
                         </div>
                     ))}
                     <div className="flex gap-2 items-center pt-1 border-t border-zinc-100 dark:border-zinc-800">
-                        {user && <Avatar name={user.user_metadata?.full_name} email={user.email} size={6} />}
+                        {user && <Avatar name={user.full_name} email={user.email} size={6} />}
                         <input value={input} onChange={e => setInput(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && submit()}
                             placeholder={user ? 'Add a comment' : 'Sign in to comment'}
@@ -269,7 +276,16 @@ function PollCard({ poll, user }) {
         const stored = JSON.parse(localStorage.getItem('voted_polls') || '{}');
         stored[poll.id] = idx;
         localStorage.setItem('voted_polls', JSON.stringify(stored));
-        await supabase.from('neighborhood_polls').update({ options: updated }).eq('id', poll.id);
+        try {
+            await fetch(`/api/neighborhood-polls/${poll.id}/vote`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ options: updated })
+            });
+        } catch (e) {
+            console.error('Failed to record vote', e);
+        }
     };
 
     return (
@@ -314,15 +330,6 @@ function PollCard({ poll, user }) {
     );
 }
 
-async function uploadPostImage(file, userId) {
-    const ext = file.name.split('.').pop();
-    const path = `${userId || 'anon'}/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from('community-posts').upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type });
-    if (error) throw error;
-    const { data } = supabase.storage.from('community-posts').getPublicUrl(path);
-    return data.publicUrl;
-}
-
 export default function Community() {
     const { user } = useAuth();
     const [posts, setPosts] = useState([]);
@@ -349,20 +356,35 @@ export default function Community() {
 
     const loadPosts = async () => {
         setLoading(true);
-        const { data } = await supabase.from('community_posts').select('*').order('created_date', { ascending: false }).limit(50);
-        if (data) setPosts(data);
+        try {
+            const res = await fetch('/api/community-posts');
+            const { data } = await res.json();
+            if (data) setPosts(data);
+        } catch (e) {
+            console.error('Failed to load posts', e);
+        }
         setLoading(false);
     };
     const loadEvents = async () => {
         setEventsLoading(true);
-        const { data } = await supabase.from('events').select('*').order('date', { ascending: true }).limit(20);
-        if (data) setEvents(data);
+        try {
+            const res = await fetch('/api/events');
+            const { data } = await res.json();
+            if (data) setEvents(data);
+        } catch (e) {
+            console.error('Failed to load events', e);
+        }
         setEventsLoading(false);
     };
     const loadPolls = async () => {
         setPollsLoading(true);
-        const { data } = await supabase.from('neighborhood_polls').select('*').order('created_at', { ascending: false }).limit(20);
-        if (data) setPolls(data);
+        try {
+            const res = await fetch('/api/neighborhood-polls');
+            const { data } = await res.json();
+            if (data) setPolls(data);
+        } catch (e) {
+            console.error('Failed to load polls', e);
+        }
         setPollsLoading(false);
     };
 
@@ -395,7 +417,16 @@ export default function Community() {
         setLikedPosts(newLiked);
         localStorage.setItem('likedPosts', JSON.stringify([...newLiked]));
         setPosts(prev => prev.map(p => p.id === post.id ? { ...p, upvotes: Math.max(0, (p.upvotes || 0) + delta) } : p));
-        await supabase.from('community_posts').update({ upvotes: Math.max(0, (post.upvotes || 0) + delta) }).eq('id', post.id);
+        try {
+            await fetch(`/api/community-posts/${post.id}/vote`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ delta })
+            });
+        } catch (e) {
+            console.error('Failed to update vote', e);
+        }
     };
 
     const createPost = async () => {
@@ -405,21 +436,26 @@ export default function Community() {
         try {
             let image_url = null;
             if (imageFile) {
-                try { image_url = await uploadPostImage(imageFile, user.id); }
-                catch { toast.error('Image upload failed — posting without photo'); }
+                const reader = new FileReader();
+                image_url = await new Promise((resolve) => {
+                    reader.onload = () => resolve(reader.result);
+                    reader.readAsDataURL(imageFile);
+                });
             }
-            const { error } = await supabase.from('community_posts').insert([{
-                type: postForm.type, title: postForm.title || null, body: postForm.body || null,
-                neighborhood: postForm.neighborhood || null, contact_email: postForm.contact_email || null,
-                job_type: postForm.job_type || null, job_salary: postForm.job_salary || null,
-                skill_offer: postForm.skill_offer || null, skill_want: postForm.skill_want || null,
-                author_email: user.email,
-                author_name: user.user_metadata?.full_name || user.email?.split('@')[0],
-                upvotes: 0, reply_count: 0, is_resolved: false,
-                created_date: new Date().toISOString(),
-                ...(image_url ? { image_url } : {}),
-            }]);
-            if (error) throw error;
+            const res = await fetch('/api/community-posts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    type: postForm.type, title: postForm.title || null, body: postForm.body || null,
+                    neighborhood: postForm.neighborhood || null, contact_email: postForm.contact_email || null,
+                    job_type: postForm.job_type || null, job_salary: postForm.job_salary || null,
+                    skill_offer: postForm.skill_offer || null, skill_want: postForm.skill_want || null,
+                    image_url: image_url
+                })
+            });
+            const { data, error } = await res.json();
+            if (error) throw new Error(error);
             toast.success('Post published');
             closePostDialog();
             loadPosts();
@@ -434,15 +470,18 @@ export default function Community() {
         if (!user) { toast.error('Sign in to create a poll'); return; }
         setSaving(true);
         try {
-            const { error } = await supabase.from('neighborhood_polls').insert([{
-                question: pollForm.question.trim(),
-                neighborhood: pollForm.neighborhood || null,
-                options: validOptions.map(text => ({ text, votes: 0 })),
-                created_by_email: user.email,
-                created_by_name: user.user_metadata?.full_name || user.email?.split('@')[0],
-                created_at: new Date().toISOString(),
-            }]);
-            if (error) throw error;
+            const res = await fetch('/api/neighborhood-polls', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    question: pollForm.question.trim(),
+                    neighborhood: pollForm.neighborhood || null,
+                    options: validOptions.map(text => ({ text, votes: 0 }))
+                })
+            });
+            const { error } = await res.json();
+            if (error) throw new Error(error);
             toast.success('Poll created');
             setCreatePollDialog(false);
             setPollForm(EMPTY_POLL);
@@ -606,7 +645,7 @@ export default function Community() {
                         <span className="text-[10px] text-zinc-400">{polls.length} active poll{polls.length !== 1 ? 's' : ''}</span>
                     </div>
                     {pollsLoading ? (
-                        <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="skeleton-wave h-40 rounded-2xl" />)}</div>
+                        <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="skeleton-wave h-140 rounded-2xl" />)}</div>
                     ) : polls.length === 0 ? (
                         <div className="border border-zinc-200 dark:border-zinc-800 rounded-2xl p-12 text-center bg-zinc-50 dark:bg-zinc-900/50">
                             <Vote className="h-8 w-8 mx-auto mb-3 text-zinc-300 dark:text-zinc-700" strokeWidth={1.5} />
@@ -645,9 +684,9 @@ export default function Community() {
                             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={e => handleImageSelect(e.target.files[0])} />
                         </div>
                         <div className="flex items-center gap-2.5">
-                            <Avatar name={user?.user_metadata?.full_name} email={user?.email} size={9} />
+                            <Avatar name={user?.full_name} email={user?.email} size={9} />
                             <div>
-                                <p className="text-sm font-semibold text-zinc-900 dark:text-white">{user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'You'}</p>
+                                <p className="text-sm font-semibold text-zinc-900 dark:text-white">{user?.full_name || user?.email?.split('@')[0] || 'You'}</p>
                                 <p className="text-[10px] text-zinc-400">Posting to Community</p>
                             </div>
                         </div>
@@ -704,9 +743,9 @@ export default function Community() {
                     </DialogHeader>
                     <div className="space-y-3 pt-2">
                         <div className="flex items-center gap-2.5">
-                            <Avatar name={user?.user_metadata?.full_name} email={user?.email} size={9} />
+                            <Avatar name={user?.full_name} email={user?.email} size={9} />
                             <div>
-                                <p className="text-sm font-semibold text-zinc-900 dark:text-white">{user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'You'}</p>
+                                <p className="text-sm font-semibold text-zinc-900 dark:text-white">{user?.full_name || user?.email?.split('@')[0] || 'You'}</p>
                                 <p className="text-[10px] text-zinc-400">Neighborhood Poll</p>
                             </div>
                         </div>

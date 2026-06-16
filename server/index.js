@@ -563,6 +563,18 @@ app.get('/api/neighborhood-polls', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.post('/api/neighborhood-polls', requireAuth, async (req, res) => {
+    const { question, neighborhood, options } = req.body;
+    if (!question) return res.status(400).json({ error: 'question required' });
+    try {
+        const { rows } = await pool.query(
+            'INSERT INTO neighborhood_polls (question, neighborhood, options, created_by) VALUES ($1,$2,$3,$4) RETURNING *',
+            [question, neighborhood || null, JSON.stringify(options || []), req.session.user.id]
+        );
+        res.json({ data: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.patch('/api/neighborhood-polls/:id/vote', requireAuth, async (req, res) => {
     const { options } = req.body;
     try {

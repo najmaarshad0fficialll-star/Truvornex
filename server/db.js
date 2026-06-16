@@ -284,6 +284,201 @@ export async function initNeighborhoodTables() {
     try {
         await client.query('BEGIN');
 
+        // Community posts table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS community_posts (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                type TEXT NOT NULL DEFAULT 'post' CHECK (type IN ('post','announcement','event','poll','alert')),
+                title TEXT,
+                body TEXT NOT NULL,
+                author_name TEXT,
+                author_email TEXT,
+                author_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                image_url TEXT,
+                upvotes INT DEFAULT 0,
+                reply_count INT DEFAULT 0,
+                created_date TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_community_posts_date ON community_posts(created_date DESC)`);
+
+        // Post comments table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS post_comments (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+                author_email TEXT NOT NULL,
+                author_name TEXT,
+                body TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_post_comments_post ON post_comments(post_id, created_at ASC)`);
+
+        // Neighborhood polls table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS neighborhood_polls (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                question TEXT NOT NULL,
+                options JSONB NOT NULL DEFAULT '[]',
+                created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                expires_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+
+        // Events table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS events (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                title TEXT NOT NULL,
+                description TEXT,
+                category TEXT DEFAULT 'community',
+                venue_name TEXT,
+                venue_type TEXT,
+                address TEXT,
+                date DATE,
+                start_time TEXT,
+                end_time TEXT,
+                organizer_name TEXT,
+                organizer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                ticket_price NUMERIC(10,2) DEFAULT 0,
+                is_free BOOLEAN DEFAULT TRUE,
+                total_tickets INT DEFAULT 100,
+                tickets_sold INT DEFAULT 0,
+                bundle_services JSONB DEFAULT '[]',
+                cover_image_url TEXT,
+                status TEXT DEFAULT 'published' CHECK (status IN ('draft','published','cancelled','completed')),
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_events_date ON events(date ASC)`);
+
+        // Event tickets table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS event_tickets (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                event_title TEXT,
+                buyer_email TEXT NOT NULL,
+                buyer_name TEXT,
+                quantity INT DEFAULT 1,
+                unit_price NUMERIC(10,2) DEFAULT 0,
+                total_amount NUMERIC(10,2) DEFAULT 0,
+                ticket_code TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_event_tickets_buyer ON event_tickets(buyer_email, created_at DESC)`);
+
+        // Group buys table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS group_buys (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                zone_id UUID,
+                service_category TEXT NOT NULL,
+                description TEXT,
+                initiator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                target_participants INT DEFAULT 5,
+                current_participants INT DEFAULT 1,
+                discount_percent INT DEFAULT 10,
+                expires_at TIMESTAMPTZ,
+                status TEXT DEFAULT 'open' CHECK (status IN ('open','locked','completed','cancelled')),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+
+        // Group buy participants table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS group_buy_participants (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                group_buy_id UUID NOT NULL REFERENCES group_buys(id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                joined_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(group_buy_id, user_id)
+            )
+        `);
+
+        // Skill swaps table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS skill_swaps (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                zone_id UUID,
+                offerer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                offering TEXT NOT NULL,
+                seeking TEXT,
+                time_credits_offered INT DEFAULT 1,
+                matched_with_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                status TEXT DEFAULT 'open' CHECK (status IN ('open','matched','completed','cancelled')),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+
+        // Time credits ledger table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS time_credits_ledger (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                amount INT NOT NULL,
+                reason TEXT,
+                reference_type TEXT,
+                reference_id UUID,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_time_credits_user ON time_credits_ledger(user_id, created_at DESC)`);
+
+        // Emergency requests table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS emergency_requests (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                customer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                zone_id UUID,
+                category TEXT NOT NULL,
+                urgency TEXT DEFAULT 'immediate' CHECK (urgency IN ('critical','immediate','urgent','scheduled')),
+                description TEXT,
+                lat NUMERIC(10,8),
+                lng NUMERIC(11,8),
+                status TEXT DEFAULT 'pending' CHECK (status IN ('pending','assigned','in_progress','resolved','cancelled')),
+                assigned_provider_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+
+        // Disputes table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS disputes (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                raised_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                against_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                booking_id UUID,
+                category TEXT NOT NULL,
+                description TEXT NOT NULL,
+                evidence_urls TEXT[] DEFAULT '{}',
+                status TEXT DEFAULT 'open' CHECK (status IN ('open','voting','resolved','dismissed')),
+                resolution TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                resolved_at TIMESTAMPTZ
+            )
+        `);
+
+        // Jury assignments table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS jury_assignments (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                dispute_id UUID NOT NULL REFERENCES disputes(id) ON DELETE CASCADE,
+                juror_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                vote TEXT CHECK (vote IN ('for_plaintiff','for_defendant','abstain')),
+                voted_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(dispute_id, juror_user_id)
+            )
+        `);
+
         await client.query(`
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

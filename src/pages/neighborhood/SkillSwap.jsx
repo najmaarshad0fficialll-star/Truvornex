@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 
 export default function SkillSwap() {
@@ -20,21 +19,20 @@ export default function SkillSwap() {
 
     const load = async () => {
         setLoading(true);
-        const tasks = [
-            supabase.from('skill_swaps').select('*').eq('status', 'open').order('created_at', { ascending: false }).limit(30),
-        ];
-        if (user) {
-            tasks.push(
-                supabase.from('skill_swaps').select('*').eq('offerer_id', user.id).order('created_at', { ascending: false }).limit(20),
-                supabase.from('time_credits_ledger').select('amount').eq('user_id', user.id)
-            );
+        try {
+            const [openRes, myRes, balRes] = await Promise.all([
+                fetch('/api/skill-swaps').then(r => r.json()).catch(() => ({ data: [] })),
+                user ? fetch('/api/skill-swaps/my').then(r => r.json()).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+                user ? fetch('/api/time-credits/balance').then(r => r.json()).catch(() => ({ balance: 0 })) : Promise.resolve({ balance: 0 })
+            ]);
+            if (openRes.data) {
+                setSwaps(user ? openRes.data.filter(s => s.offerer_id !== user.id) : openRes.data);
+            }
+            if (myRes.data) setMySwaps(myRes.data);
+            if (balRes.balance !== undefined) setBalance(balRes.balance);
+        } catch (e) {
+            console.error('Failed to load skill swaps', e);
         }
-        const [openRes, myRes, ledgerRes] = await Promise.all(tasks);
-        if (openRes.data) {
-            setSwaps(user ? openRes.data.filter(s => s.offerer_id !== user.id) : openRes.data);
-        }
-        if (myRes?.data) setMySwaps(myRes.data);
-        if (ledgerRes?.data) setBalance(ledgerRes.data.reduce((s, r) => s + (r.amount || 0), 0));
         setLoading(false);
     };
 
@@ -45,14 +43,18 @@ export default function SkillSwap() {
         if (!user) { toast.error('Sign in first'); return; }
         setSaving(true);
         try {
-            const { error } = await supabase.from('skill_swaps').insert([{
-                offerer_id: user.id,
-                offering: form.offering.trim(),
-                seeking: form.seeking.trim(),
-                time_credits_offered: Number(form.time_credits),
-                status: 'open',
-            }]);
-            if (error) throw error;
+            const res = await fetch('/api/skill-swaps', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    offering: form.offering.trim(),
+                    seeking: form.seeking.trim(),
+                    time_credits_offered: Number(form.time_credits)
+                })
+            });
+            const { error } = await res.json();
+            if (error) throw new Error(error);
             toast.success('Skill swap posted');
             setDialog(false);
             setForm({ offering: '', seeking: '', time_credits: 1 });
@@ -65,11 +67,12 @@ export default function SkillSwap() {
         if (!user) { toast.error('Sign in first'); return; }
         setProposing(swap.id);
         try {
-            const { error } = await supabase.from('skill_swaps').update({
-                status: 'matched',
-                matched_with_user_id: user.id,
-            }).eq('id', swap.id);
-            if (error) throw error;
+            const res = await fetch(`/api/skill-swaps/${swap.id}/match`, {
+                method: 'PATCH',
+                credentials: 'include'
+            });
+            const { error } = await res.json();
+            if (error) throw new Error(error);
             setSwaps(p => p.filter(s => s.id !== swap.id));
             toast.success('Swap proposed — the other person will be notified');
         } catch (err) { toast.error(err.message || 'Failed to propose'); }

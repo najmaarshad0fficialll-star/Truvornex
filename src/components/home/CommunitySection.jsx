@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/api/supabaseClient';
 import { Link } from 'react-router-dom';
 import { Megaphone, Search, ThumbsUp, HelpCircle, Briefcase, RefreshCw, MessageCircle, ArrowRight, Plus, Send, ChevronRight, MapPin, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,8 +28,13 @@ export default function CommunitySection({ user }) {
 
     const load = async () => {
         setLoading(true);
-        const { data } = await supabase.from('community_posts').select('*').order('created_date', { ascending: false }).limit(20);
-        if (data) setPosts(data);
+        try {
+            const res = await fetch('/api/community-posts');
+            const { data } = await res.json();
+            if (data) setPosts(data);
+        } catch (e) {
+            console.error('Failed to load posts', e);
+        }
         setLoading(false);
     };
 
@@ -40,18 +44,42 @@ export default function CommunitySection({ user }) {
 
     const upvote = async (post) => {
         setPosts(prev => prev.map(p => p.id === post.id ? { ...p, upvotes: (p.upvotes || 0) + 1 } : p));
+        try {
+            await fetch(`/api/community-posts/${post.id}/vote`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ delta: 1 })
+            });
+        } catch (e) {
+            console.error('Failed to upvote', e);
+        }
     };
 
     const create = async () => {
         if (!form.title || !form.body) { toast.error('Title and message required'); return; }
-        const { error } = await supabase.from('community_posts').insert([{
-            ...form, author_email: user?.email, author_name: user?.full_name || user?.email, upvotes: 0, reply_count: 0, is_resolved: false,
-        }]);
-        toast.success('Posted to community feed!');
+        setSaving(true);
+        try {
+            const res = await fetch('/api/community-posts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    ...form,
+                    author_email: user?.email,
+                    author_name: user?.full_name || user?.email
+                })
+            });
+            const { error } = await res.json();
+            if (error) throw new Error(error);
+            toast.success('Posted to community feed!');
+            setPostDialog(false);
+            setForm({ type: 'general', title: '', body: '', neighborhood: '', skill_offer: '', skill_want: '', job_type: '', job_salary: '', contact_email: '' });
+            load();
+        } catch (e) {
+            toast.error(e.message || 'Failed to post');
+        }
         setSaving(false);
-        setPostDialog(false);
-        setForm({ type: 'general', title: '', body: '', neighborhood: '', skill_offer: '', skill_want: '', job_type: '', job_salary: '', contact_email: '' });
-        load();
     };
 
     const counts = { all: posts.length };

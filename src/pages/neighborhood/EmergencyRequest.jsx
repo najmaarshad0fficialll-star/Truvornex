@@ -3,7 +3,6 @@ import { Zap, MapPin, AlertTriangle, CheckCircle, Loader2, Wrench, Thermometer, 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 
 const EMERGENCY_CATEGORIES = [
@@ -39,34 +38,21 @@ export default function EmergencyRequest() {
     const load = async () => {
         if (!user) { setLoading(false); return; }
         setLoading(true);
-        const { data } = await supabase
-            .from('emergency_requests')
-            .select('*')
-            .eq('customer_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(10);
-        if (data) {
-            setRequests(data);
-            const active = data.find(r => !['resolved', 'cancelled'].includes(r.status));
-            if (active) setActiveReq(active);
+        try {
+            const res = await fetch('/api/emergency-requests');
+            const { data } = await res.json();
+            if (data) {
+                setRequests(data);
+                const active = data.find(r => !['resolved', 'cancelled'].includes(r.status));
+                if (active) setActiveReq(active);
+            }
+        } catch (e) {
+            console.error('Failed to load emergency requests', e);
         }
         setLoading(false);
     };
 
     useEffect(() => { load(); }, [user]);
-
-    useEffect(() => {
-        if (!activeReq?.id) return;
-        const ch = supabase.channel(`er-${activeReq.id}`)
-            .on('postgres_changes', {
-                event: 'UPDATE', schema: 'public',
-                table: 'emergency_requests', filter: `id=eq.${activeReq.id}`,
-            }, ({ new: next }) => {
-                setActiveReq(p => ({ ...p, ...next }));
-                if (next.status === 'resolved') toast.success('Request resolved!');
-            }).subscribe();
-        return () => supabase.removeChannel(ch);
-    }, [activeReq?.id]);
 
     const getLocation = () => {
         if (!navigator.geolocation) { toast.error('Geolocation not supported'); return; }
@@ -83,16 +69,20 @@ export default function EmergencyRequest() {
         if (!user) { toast.error('Sign in first'); return; }
         setSubmitting(true);
         try {
-            const { data, error } = await supabase.from('emergency_requests').insert([{
-                customer_id: user.id,
-                category: form.category,
-                urgency: form.urgency,
-                description: form.description.trim(),
-                lat: loc?.lat ?? null,
-                lng: loc?.lng ?? null,
-                status: 'open',
-            }]).select().single();
-            if (error) throw error;
+            const res = await fetch('/api/emergency-requests', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    category: form.category,
+                    urgency: form.urgency,
+                    description: form.description.trim(),
+                    lat: loc?.lat ?? null,
+                    lng: loc?.lng ?? null
+                })
+            });
+            const { data, error } = await res.json();
+            if (error) throw new Error(error);
             setActiveReq(data);
             setRequests(p => [data, ...p]);
             setForm({ category: '', urgency: 'immediate', description: '' });
@@ -104,10 +94,19 @@ export default function EmergencyRequest() {
 
     const cancel = async () => {
         if (!activeReq) return;
-        await supabase.from('emergency_requests').update({ status: 'cancelled' }).eq('id', activeReq.id);
-        setActiveReq(null);
-        load();
-        toast.success('Request cancelled');
+        try {
+            await fetch(`/api/emergency-requests/${activeReq.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ status: 'cancelled' })
+            });
+            setActiveReq(null);
+            load();
+            toast.success('Request cancelled');
+        } catch (e) {
+            toast.error('Failed to cancel request');
+        }
     };
 
     const stepIdx = s => STATUS_STEPS.indexOf(s);

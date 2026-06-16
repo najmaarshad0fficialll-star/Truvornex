@@ -24,24 +24,65 @@ export default function TransportSection({ user }) {
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-            .then(r => { setRides(r); setLoading(false);
+        (async () => {
+            try {
+                const res = await fetch('/api/neighborhood/ride-shares');
+                const { data } = await res.json();
+                if (data) setRides(data.filter(r => r.status === 'open').slice(0, 5));
+            } catch (e) {
+                console.error('Failed to load rides', e);
+            }
+            setLoading(false);
+        })();
     }, []);
 
     const filtered = activeType === 'all' ? rides : rides.filter(r => r.type === activeType);
 
     const post = async () => {
         if (!form.from_location || !form.to_location || !form.date) { toast.error('From, to and date required'); return; }
+        if (!user) { toast.error('Please log in to post'); return; }
         setSaving(true);
-        toast.success('Listing posted!');
+        try {
+            const res = await fetch('/api/neighborhood/ride-shares', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    ...form,
+                    departure_at: form.date + (form.departure_time ? `T${form.departure_time}` : ''),
+                    price_pkr: form.price_per_seat,
+                    seats_total: form.seats_available
+                })
+            });
+            const { error } = await res.json();
+            if (error) throw new Error(error);
+            toast.success('Listing posted!');
+            setPostDialog(false);
+            // Reload
+            const res2 = await fetch('/api/neighborhood/ride-shares');
+            const { data } = await res2.json();
+            if (data) setRides(data.filter(r => r.status === 'open').slice(0, 5));
+        } catch (e) {
+            toast.error(e.message || 'Failed to post listing');
+        }
         setSaving(false);
-        setPostDialog(false);
     };
 
     const requestSeat = async (ride) => {
         if (!user) { toast.error('Please log in'); return; }
-        setRides(prev => prev.map(r => r.id === ride.id ? { ...r, seats_taken: (r.seats_taken || 0) + 1 } : r));
-        toast.success('Request sent! Contact the driver to confirm.');
-        setRequestDialog(null);
+        try {
+            const res = await fetch(`/api/neighborhood/ride-shares/${ride.id}/join`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+            const { error } = await res.json();
+            if (error) throw new Error(error);
+            setRides(prev => prev.map(r => r.id === ride.id ? { ...r, seats_taken: (r.seats_taken || 0) + 1 } : r));
+            toast.success('Request sent! Contact the driver to confirm.');
+            setRequestDialog(null);
+        } catch (e) {
+            toast.error(e.message || 'Failed to request seat');
+        }
     };
 
     // Stats
@@ -92,7 +133,7 @@ export default function TransportSection({ user }) {
                     {filtered.slice(0, 5).map(ride => {
                         const cfg = TYPE_CONFIG[ride.type] || TYPE_CONFIG.carpool;
                         const Icon = cfg.icon;
-                        const seatsLeft = (ride.seats_available || 0) - (ride.seats_taken || 0);
+                        const seatsLeft = (ride.seats_available || ride.seats_total || 0) - (ride.seats_taken || 0);
                         const isFull = seatsLeft <= 0;
                         return (
                             <div key={ride.id} className={`rounded-2xl p-4 border border-zinc-100 dark:border-zinc-800 ${cfg.light} hover:shadow-premium transition-all`}>
@@ -105,14 +146,14 @@ export default function TransportSection({ user }) {
                                             <p className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">{ride.driver_name || ride.driver_email?.split('@')[0]}</p>
                                             <div className="flex items-center gap-3 text-xs text-zinc-500 mt-0.5 flex-wrap">
                                                 <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{ride.from_location} → {ride.to_location}</span>
-                                                <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{ride.date}{ride.departure_time ? ` ${ride.departure_time}` : ''}</span>
+                                                <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{ride.departure_at?.slice(0, 10) || ride.date}</span>
                                                 {ride.type === 'carpool' && <span className="flex items-center gap-1"><Users className="h-3 w-3" />{seatsLeft} seats left</span>}
                                                 {ride.vehicle && <span className="text-zinc-400">{ride.vehicle}</span>}
                                             </div>
                                         </div>
                                     </div>
                                     <div className="text-right shrink-0">
-                                        <p className="font-bold text-sm">{ride.price_per_seat > 0 ? `$${ride.price_per_seat}` : 'Free'}</p>
+                                        <p className="font-bold text-sm">{ride.price_pkr > 0 ? `$${ride.price_pkr}` : 'Free'}</p>
                                         {ride.type === 'carpool' && <p className="text-[10px] text-zinc-400">per seat</p>}
                                         <Button size="sm" variant="outline" className="rounded-lg h-7 text-xs mt-1.5 gap-1" disabled={isFull}
                                             onClick={() => setRequestDialog(ride)}>
@@ -180,10 +221,10 @@ export default function TransportSection({ user }) {
                         <div className="space-y-3 pt-1">
                             <div className="bg-zinc-50 dark:bg-zinc-900 rounded-2xl p-4 space-y-1.5 text-sm">
                                 <p><span className="text-zinc-400">Route: </span>{requestDialog.from_location} → {requestDialog.to_location}</p>
-                                <p><span className="text-zinc-400">Date: </span>{requestDialog.date} {requestDialog.departure_time && `at ${requestDialog.departure_time}`}</p>
+                                <p><span className="text-zinc-400">Date: </span>{requestDialog.departure_at?.slice(0, 10) || requestDialog.date} {requestDialog.departure_time && `at ${requestDialog.departure_time}`}</p>
                                 <p><span className="text-zinc-400">Driver: </span>{requestDialog.driver_name || requestDialog.driver_email}</p>
                                 {requestDialog.contact_phone && <p><span className="text-zinc-400">Phone: </span>{requestDialog.contact_phone}</p>}
-                                <p><span className="text-zinc-400">Price: </span>{requestDialog.price_per_seat > 0 ? `$${requestDialog.price_per_seat}${requestDialog.type === 'carpool' ? '/seat' : ''}` : 'Free'}</p>
+                                <p><span className="text-zinc-400">Price: </span>{requestDialog.price_pkr > 0 ? `$${requestDialog.price_pkr}${requestDialog.type === 'carpool' ? '/seat' : ''}` : 'Free'}</p>
                             </div>
                             <Button className="w-full h-11 rounded-xl" onClick={() => requestSeat(requestDialog)}>Confirm Request</Button>
                         </div>

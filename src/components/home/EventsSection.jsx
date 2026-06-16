@@ -39,31 +39,67 @@ export default function EventsSection({ user }) {
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-            .then(e => { setEvents(e); setLoading(false);
+        (async () => {
+            try {
+                const res = await fetch('/api/events');
+                const { data } = await res.json();
+                if (data) setEvents(data.filter(e => !e.date || new Date(e.date) >= new Date(new Date().setHours(0,0,0,0))).slice(0, 6));
+            } catch (e) {
+                console.error('Failed to load events', e);
+            }
+            setLoading(false);
+        })();
     }, []);
 
     const buyTicket = async (event) => {
         if (!user) { toast.error('Please log in to buy tickets'); return; }
         setBuying(true);
-        const code = `TRV-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-            event_id: event.id, event_title: event.title,
-            buyer_email: user.email, buyer_name: user.full_name || user.email,
-            quantity: 1, unit_price: event.ticket_price || 0,
-            total_amount: event.ticket_price || 0,
-            status: 'active', ticket_code: code,
-        });
-        setEvents(prev => prev.map(e => e.id === event.id ? { ...e, tickets_sold: (e.tickets_sold || 0) + 1 } : e));
-        toast.success(`Ticket booked! Code: ${code}`);
+        try {
+            const code = `TRV-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+            const res = await fetch('/api/event-tickets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    event_id: event.id, event_title: event.title,
+                    quantity: 1, unit_price: event.ticket_price || 0
+                })
+            });
+            const { error } = await res.json();
+            if (error) throw new Error(error);
+            setEvents(prev => prev.map(e => e.id === event.id ? { ...e, tickets_sold: (e.tickets_sold || 0) + 1 } : e));
+            toast.success(`Ticket booked! Code: ${code}`);
+            setTicketDialog(null);
+        } catch (e) {
+            toast.error(e.message || 'Failed to book ticket');
+        }
         setBuying(false);
-        setTicketDialog(null);
     };
 
     const createEvent = async () => {
         if (!form.title || !form.date || !form.venue_name) { toast.error('Title, date and venue required'); return; }
+        if (!user) { toast.error('Please log in to create events'); return; }
         setSaving(true);
-        toast.success('Event published!');
+        try {
+            const res = await fetch('/api/events', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(form)
+            });
+            const { error } = await res.json();
+            if (error) throw new Error(error);
+            toast.success('Event published!');
+            setQuickCreate(false);
+            setForm({ title: '', category: 'meetup', venue_name: '', date: '', ticket_price: 0, is_free: true, total_tickets: 100 });
+            // Reload events
+            const res2 = await fetch('/api/events');
+            const { data } = await res2.json();
+            if (data) setEvents(data.filter(e => !e.date || new Date(e.date) >= new Date(new Date().setHours(0,0,0,0))).slice(0, 6));
+        } catch (e) {
+            toast.error(e.message || 'Failed to create event');
+        }
         setSaving(false);
-        setQuickCreate(false);
     };
 
     return (
