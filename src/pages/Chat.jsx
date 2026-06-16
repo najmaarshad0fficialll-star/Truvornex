@@ -28,7 +28,7 @@ export default function Chat() {
 
     const fetchConversations = useCallback(async () => {
         try {
-            const r = await fetch('/api/chat/conversations');
+            const r = await fetch('/api/chat/conversations', { credentials: 'include' });
             const data = await r.json();
             if (data.conversations) setConversations(data.conversations);
         } catch (_) {}
@@ -38,7 +38,7 @@ export default function Chat() {
         if (!conv?.thread_key) return;
         setMsgLoading(true);
         try {
-            const r = await fetch(`/api/chat/messages/${encodeURIComponent(conv.thread_key)}`);
+            const r = await fetch(`/api/chat/messages/${encodeURIComponent(conv.thread_key)}`, { credentials: 'include' });
             const data = await r.json();
             if (data.messages) {
                 setMessages(data.messages);
@@ -51,27 +51,26 @@ export default function Chat() {
     useEffect(() => {
         const init = async () => {
             try {
-                const r = await fetch('/api/auth/user');
+                const r = await fetch('/api/auth/user', { credentials: 'include' });
                 const d = await r.json();
                 if (!d.user) { setLoading(false); return; }
                 setUser(d.user);
-                const cr = await fetch('/api/chat/conversations');
+                const cr = await fetch('/api/chat/conversations', { credentials: 'include' });
                 const cd = await cr.json();
                 const convos = cd.conversations || [];
                 setConversations(convos);
                 if (deepLinkUserId) {
                     // Make thread_key and find/create conversation
-                    const [a, b] = [d.user.id, deepLinkUserId].sort();
-                    const threadKey = `${a}::${b}`;
+                    const threadKey = [d.user.id, deepLinkUserId].sort().join('_');
                     const existing = convos.find(c => c.thread_key === threadKey);
                     if (existing) {
                         setSelected(existing);
                     } else {
-                        const ur = await fetch(`/api/chat/users?q=`);
+                        const ur = await fetch(`/api/chat/users?q=`, { credentials: 'include' });
                         const ud = await ur.json();
                         const other = ud.users?.find(u => u.id === deepLinkUserId);
                         if (other) {
-                            const pseudoConv = { thread_key: threadKey, other_id: deepLinkUserId, other_name: other.full_name || other.email, other_email: other.email, unread_count: 0, last_message: '' };
+                            const pseudoConv = { thread_key: threadKey, other_user_id: deepLinkUserId, other_user_name: other.full_name || other.email, unread_count: 0, last_message: '' };
                             setSelected(pseudoConv);
                         }
                     }
@@ -95,7 +94,7 @@ export default function Chat() {
         if (!selected || !user) return;
         const poll = async () => {
             try {
-                const r = await fetch(`/api/chat/messages/${encodeURIComponent(selected.thread_key)}`);
+                const r = await fetch(`/api/chat/messages/${encodeURIComponent(selected.thread_key)}`, { credentials: 'include' });
                 const d = await r.json();
                 if (d.messages && d.messages.length !== messages.length) {
                     setMessages(d.messages);
@@ -129,7 +128,8 @@ export default function Chat() {
             const r = await fetch('/api/chat/messages', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ receiver_id: selected.other_id, content: trimmed }),
+                credentials: 'include',
+                body: JSON.stringify({ receiver_id: selected.other_id || selected.other_user_id, content: trimmed }),
             });
             const d = await r.json();
             if (d.message) {
@@ -151,7 +151,7 @@ export default function Chat() {
         if (!q.trim()) { setUserResults([]); return; }
         setUserSearching(true);
         try {
-            const r = await fetch(`/api/chat/users?q=${encodeURIComponent(q)}`);
+            const r = await fetch(`/api/chat/users?q=${encodeURIComponent(q)}`, { credentials: 'include' });
             const d = await r.json();
             setUserResults(d.users || []);
         } catch (_) {}
@@ -159,13 +159,12 @@ export default function Chat() {
     };
 
     const startChat = (otherUser) => {
-        const [a, b] = [user.id, otherUser.id].sort();
-        const threadKey = `${a}::${b}`;
+        const threadKey = [user.id, otherUser.id].sort().join('_');
         const existing = conversations.find(c => c.thread_key === threadKey);
         if (existing) {
             setSelected(existing);
         } else {
-            const newConv = { thread_key: threadKey, other_id: otherUser.id, other_name: otherUser.full_name || otherUser.email, other_email: otherUser.email, unread_count: 0, last_message: '' };
+            const newConv = { thread_key: threadKey, other_user_id: otherUser.id, other_user_name: otherUser.full_name || otherUser.email, unread_count: 0, last_message: '' };
             setConversations(prev => [newConv, ...prev]);
             setSelected(newConv);
         }
@@ -175,7 +174,7 @@ export default function Chat() {
     };
 
     const filteredConvos = conversations.filter(c => {
-        const label = c.other_name || c.other_email || '';
+        const label = c.other_user_name || c.other_name || c.other_email || '';
         return !search || label.toLowerCase().includes(search.toLowerCase());
     });
 
@@ -253,12 +252,12 @@ export default function Chat() {
                                     <div className="flex items-center gap-2.5">
                                         <div className="h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
                                             style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-on-primary)' }}>
-                                            {getInitial(c.other_name, c.other_email)}
+                                            {getInitial(c.other_user_name || c.other_name, c.other_email)}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center justify-between mb-0.5">
                                                 <p className="text-xs font-semibold truncate" style={{ color: 'var(--color-text)' }}>
-                                                    {c.other_name || c.other_email || 'Unknown'}
+                                                    {c.other_user_name || c.other_name || c.other_email || 'Unknown'}
                                                 </p>
                                                 <span className="text-[10px] shrink-0 ml-1" style={{ color: 'var(--color-text-subtle)' }}>
                                                     {formatTime(c.last_message_at)}
@@ -293,14 +292,14 @@ export default function Chat() {
                                 style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
                                 <div className="h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
                                     style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-on-primary)' }}>
-                                    {getInitial(selected.other_name, selected.other_email)}
+                                    {getInitial(selected.other_user_name || selected.other_name, selected.other_email)}
                                 </div>
                                 <div className="flex-1">
                                     <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-                                        {selected.other_name || selected.other_email || 'Unknown'}
+                                        {selected.other_user_name || selected.other_name || selected.other_email || 'Unknown'}
                                     </p>
                                     <p className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
-                                        {selected.other_email}
+                                        {selected.other_email || ''}
                                     </p>
                                 </div>
                             </div>
@@ -325,7 +324,7 @@ export default function Chat() {
                                             {!isMe && (
                                                 <div className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mr-1.5 mt-auto mb-4"
                                                     style={{ backgroundColor: 'var(--color-surface-high)', color: 'var(--color-text-subtle)', border: '1px solid var(--color-border)' }}>
-                                                    {getInitial(selected.other_name, selected.other_email)}
+                                                    {getInitial(selected.other_user_name || selected.other_name, selected.other_email)}
                                                 </div>
                                             )}
                                             <div className="max-w-[72%]">

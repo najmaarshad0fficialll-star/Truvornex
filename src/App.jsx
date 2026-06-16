@@ -12,7 +12,6 @@ import { AuthModalProvider } from '@/lib/AuthModalContext';
 import AuthModal from '@/components/AuthModal';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import SplashScreen from './components/SplashScreen';
-import IntroFlow from './components/IntroFlow';
 import CustomerLayout from './components/CustomerLayout';
 import ProviderLayout from './components/ProviderLayout';
 import AdminLayout from './components/AdminLayout';
@@ -219,16 +218,10 @@ const AuthenticatedApp = () => {
 
 function App() {
     const [splashDone, setSplashDone] = useState(() => !!localStorage.getItem('truvornex-splash-seen'));
-    const [introDone, setIntroDone] = useState(() => !!localStorage.getItem('truvornex-intro-seen'));
 
     const handleSplashComplete = () => {
         localStorage.setItem('truvornex-splash-seen', '1');
         setSplashDone(true);
-    };
-
-    const handleIntroComplete = () => {
-        localStorage.setItem('truvornex-intro-seen', '1');
-        setIntroDone(true);
     };
 
     return (
@@ -238,7 +231,6 @@ function App() {
                     <QueryClientProvider client={queryClientInstance}>
                         <SimonProvider>
                             {!splashDone && <SplashScreen onComplete={handleSplashComplete} />}
-                            {splashDone && !introDone && <IntroFlow onComplete={handleIntroComplete} />}
                             <Router>
                                 <AuthenticatedApp />
                                 <AuthModal />
