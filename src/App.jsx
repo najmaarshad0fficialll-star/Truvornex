@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import { useState } from 'react';
 import Login from './pages/Login';
 import PageNotFound from './lib/PageNotFound';
@@ -96,12 +96,6 @@ import Wallet from './pages/Wallet';
 import Marketplace from './pages/Marketplace';
 import Committee from './pages/Committee';
 
-const HomeRedirect = () => {
-    const { isAuthenticated, isLoadingAuth } = useAuth();
-    if (isLoadingAuth) return null;
-    if (!isAuthenticated) return <Navigate to="/login" replace />;
-    return <Home />;
-};
 
 const AuthenticatedApp = () => {
     const { isLoadingAuth, authError } = useAuth();
@@ -129,7 +123,7 @@ const AuthenticatedApp = () => {
     return (
         <Routes>
             <Route element={<CustomerLayout />}>
-                <Route path="/" element={<HomeRedirect />} />
+                <Route path="/" element={<Home />} />
                 <Route path="/services" element={<Services />} />
                 <Route path="/nearby" element={<NearbyProviders />} />
                 <Route path="/providers/:providerId" element={<ProviderDetail />} />
