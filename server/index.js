@@ -162,11 +162,39 @@ app.post('/api/auth/signup', async (req, res) => {
             'INSERT INTO users (email, password_hash, full_name) VALUES ($1, $2, $3) RETURNING id, email, full_name, role, avatar_url',
             [email.toLowerCase(), hash, fullName || null]
         );
-        res.json({ user: rows[0] });
+        const user = rows[0];
+        // Auto-create wallet for new user
+        await pool.query(
+            `INSERT INTO wallets (user_id, balance, currency) VALUES ($1, 0, 'PKR') ON CONFLICT (user_id, currency) DO NOTHING`,
+            [user.id]
+        );
+        // Auto-create trust score if role is provider
+        if (user.role === 'provider') {
+            await pool.query(
+                `INSERT INTO provider_trust_scores (provider_id, score, tier) VALUES ($1, 0, 'new') ON CONFLICT (provider_id) DO NOTHING`,
+                [user.id]
+            );
+        }
+        res.json({ user });
     } catch (err) {
         if (err.code === '23505') return res.status(409).json({ error: 'An account with this email already exists' });
         console.error('Signup error:', err);
         res.status(500).json({ error: 'Signup failed' });
+    }
+});
+
+app.put('/api/auth/profile', requireAuth, async (req, res) => {
+    const { full_name, phone, city, avatar_url } = req.body;
+    try {
+        const { rows } = await pool.query(
+            `UPDATE users SET full_name=$1, phone=$2, city=$3, avatar_url=$4, updated_at=NOW()
+             WHERE id=$5 RETURNING id, email, full_name, phone, city, avatar_url, role`,
+            [full_name, phone, city, avatar_url, req.session.user.id]
+        );
+        req.session.user = { ...req.session.user, ...rows[0] };
+        res.json({ user: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

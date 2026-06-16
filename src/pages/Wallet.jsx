@@ -58,7 +58,7 @@ export default function WalletPage() {
 
     const fetchWallet = useCallback(async () => {
         try {
-            const r = await fetch('/api/wallet');
+            const r = await fetch('/api/wallet', { credentials: 'include' });
             const d = await r.json();
             if (d.wallet) setWallet(d.wallet);
             if (d.transactions) setTransactions(d.transactions);
@@ -67,7 +67,7 @@ export default function WalletPage() {
 
     useEffect(() => {
         const init = async () => {
-            const r = await fetch('/api/auth/user');
+            const r = await fetch('/api/auth/user', { credentials: 'include' });
             const d = await r.json();
             if (!d.user) { setLoading(false); return; }
             setUser(d.user);
@@ -89,7 +89,7 @@ export default function WalletPage() {
         if (!q.trim() || q.length < 2) { setSendSearch([]); return; }
         setSendSearching(true);
         try {
-            const r = await fetch(`/api/wallet/neighbors?q=${encodeURIComponent(q)}`);
+            const r = await fetch(`/api/wallet/neighbors?q=${encodeURIComponent(q)}`, { credentials: 'include' });
             const d = await r.json();
             setSendSearch(d.users || []);
         } catch (_) {}
@@ -105,6 +105,7 @@ export default function WalletPage() {
             const r = await fetch('/api/wallet/transfer', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ to_email: email, amount: amt, note: sendNote }),
             });
             const d = await r.json();
@@ -126,6 +127,7 @@ export default function WalletPage() {
             const r = await fetch('/api/wallet/topup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ amount: amt, method: topupMethod }),
             });
             const d = await r.json();
@@ -148,6 +150,7 @@ export default function WalletPage() {
             const r = await fetch('/api/wallet/withdraw', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ amount: amt, bank_name: withdrawBank, account_number: withdrawAccount, account_title: withdrawTitle }),
             });
             const d = await r.json();

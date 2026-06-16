@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, Zap, ArrowRight, Loader2, CheckCircle, Sparkles, Shield, Clock, Star } from 'lucide-react';
+import { Eye, EyeOff, Zap, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { supabase } from '@/api/supabaseClient';
 
-const FEATURES = [
-    { icon: Zap, title: '2,400+ Verified Providers', desc: 'Trusted professionals in your neighborhood' },
-    { icon: Shield, title: 'AI-Powered Matching', desc: 'Simon finds the perfect provider for every job' },
-    { icon: Clock, title: 'Book in 60 Seconds', desc: 'Instant booking with real-time availability' },
-    { icon: Star, title: '4.9★ Average Rating', desc: '98% satisfaction across 15,000+ bookings' },
+const SLIDES = [
+    'Your neighborhood, connected.',
+    'Every neighbor has a skill.',
+    'Simon knows your area.',
+    'Built for Hyderabad. Built for Helsinki.',
 ];
 
 export default function Login() {
@@ -25,6 +25,20 @@ export default function Login() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [currentSlide, setCurrentSlide] = useState(0);
+    const [isAnimating, setIsAnimating] = useState(false);
+
+    // Auto-advance carousel every 3.5s
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setIsAnimating(true);
+            setTimeout(() => {
+                setCurrentSlide(prev => (prev + 1) % SLIDES.length);
+                setIsAnimating(false);
+            }, 400);
+        }, 3500);
+        return () => clearInterval(timer);
+    }, []);
 
     // Redirect if already logged in
     useEffect(() => {
@@ -109,28 +123,33 @@ export default function Login() {
                         </div>
                     </div>
 
-                    <h1 className="text-white mb-6" style={{ fontFamily: "'Great Vibes', cursive", fontSize: 'clamp(2.4rem, 5vw, 3.8rem)', fontWeight: 400, lineHeight: 1.2, letterSpacing: '0.01em' }}>
-                        Every service, at your fingertips.
-                    </h1>
-                    <p className="text-lg leading-relaxed mb-12" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                        Connect with trusted, verified service providers in your neighborhood — powered by Simon AI.
-                    </p>
+                    {/* Animated Carousel */}
+                    <div className="relative h-32 overflow-hidden">
+                        <h1
+                            className={`font-screamer text-5xl text-white transition-all duration-400 ease-out ${isAnimating ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}
+                            style={{ lineHeight: 1.2 }}
+                        >
+                            {SLIDES[currentSlide]}
+                        </h1>
+                    </div>
 
-                    <div className="space-y-4">
-                        {FEATURES.map(({ icon: Icon, title, desc }) => (
-                            <div key={title} className="flex items-center gap-4 p-4 rounded-2xl"
-                                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                                <div className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0"
-                                    style={{ background: 'rgba(124,111,205,0.15)', border: '1px solid rgba(124,111,205,0.2)' }}>
-                                    <Icon className="h-5 w-5" style={{ color: '#7c6fcd' }} />
-                                </div>
-                                <div>
-                                    <div className="font-semibold text-sm text-white">{title}</div>
-                                    <div className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{desc}</div>
-                                </div>
-                            </div>
+                    {/* Slide indicators */}
+                    <div className="flex gap-2 mt-8">
+                        {SLIDES.map((_, idx) => (
+                            <div
+                                key={idx}
+                                className="h-1.5 rounded-full transition-all duration-300"
+                                style={{
+                                    width: idx === currentSlide ? '24px' : '12px',
+                                    background: idx === currentSlide ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.25)',
+                                }}
+                            />
                         ))}
                     </div>
+
+                    <p className="text-lg leading-relaxed mt-8 max-w-md" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                        Connect with trusted, verified service providers in your neighborhood — powered by Simon AI.
+                    </p>
                 </div>
 
                 <div className="relative flex items-center gap-3">
@@ -248,8 +267,7 @@ export default function Login() {
                         )}
 
                         <button type="submit" disabled={loading}
-                            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-bold transition-all hover:opacity-90 disabled:opacity-50 mt-2"
-                            style={{ background: 'var(--color-primary)', color: 'var(--color-on-primary)' }}>
+                            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-bold transition-all hover:opacity-90 disabled:opacity-50 mt-2 bg-transparent border border-white/30 text-white hover:bg-white/10">
                             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
                                 <>
                                     {tab === 'login' ? 'Sign In' : 'Create Account'}

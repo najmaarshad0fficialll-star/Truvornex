@@ -86,7 +86,7 @@ export default function Marketplace() {
             if (cond) url += `condition=${cond}&`;
             if (minP) url += `min_price=${minP}&`;
             if (maxP) url += `max_price=${maxP}&`;
-            const r = await fetch(url);
+            const r = await fetch(url, { credentials: 'include' });
             const d = await r.json();
             setListings(d.listings || []);
         } catch (_) { setListings([]); }
@@ -97,8 +97,8 @@ export default function Marketplace() {
         setMyLoading(true);
         try {
             const [lr, or] = await Promise.all([
-                fetch('/api/marketplace/my').then(r => r.json()),
-                fetch('/api/marketplace/orders/my').then(r => r.json()),
+                fetch('/api/marketplace/my', { credentials: 'include' }).then(r => r.json()),
+                fetch('/api/marketplace/orders/my', { credentials: 'include' }).then(r => r.json()),
             ]);
             setMyListings(lr.listings || []);
             setMyOrders(or.orders || []);
@@ -108,7 +108,7 @@ export default function Marketplace() {
 
     useEffect(() => {
         const init = async () => {
-            const r = await fetch('/api/auth/user');
+            const r = await fetch('/api/auth/user', { credentials: 'include' });
             const d = await r.json();
             setUser(d.user);
             await fetchListings();
@@ -144,7 +144,7 @@ export default function Marketplace() {
 
     const openListing = async (id) => {
         try {
-            const r = await fetch(`/api/marketplace/${id}`);
+            const r = await fetch(`/api/marketplace/${id}`, { credentials: 'include' });
             const d = await r.json();
             if (d.listing) setSelected(d.listing);
         } catch (_) {}
@@ -158,6 +158,7 @@ export default function Marketplace() {
             const r = await fetch(`/api/marketplace/${selected.id}/order`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ message: offerMsg }),
             });
             const d = await r.json();
@@ -178,6 +179,7 @@ export default function Marketplace() {
             const r = await fetch('/api/marketplace', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ ...form, price_pkr: parseFloat(form.price_pkr) }),
             });
             const d = await r.json();
@@ -198,6 +200,7 @@ export default function Marketplace() {
             const r = await fetch(`/api/marketplace/${id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ status: 'sold' }),
             });
             const d = await r.json();

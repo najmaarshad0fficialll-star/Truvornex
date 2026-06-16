@@ -6,7 +6,7 @@ import { createNotification } from './db.js';
 const router = Router();
 
 function makeThreadKey(a, b) {
-    return [a, b].sort().join('::');
+    return [a, b].sort().join('_');
 }
 
 // GET /api/chat/conversations
@@ -24,8 +24,8 @@ router.get('/conversations', async (req, res) => {
                 (SELECT COUNT(*) FROM chat_messages
                     WHERE thread_key = cm.thread_key AND receiver_id = $1 AND read = FALSE) AS unread_count
             FROM chat_messages cm
-            JOIN users u ON u.id = CASE WHEN cm.sender_id = $1 THEN cm.receiver_id ELSE cm.sender_id END
-            WHERE cm.sender_id = $1 OR cm.receiver_id = $1
+            JOIN users u ON u.id = CASE WHEN cm.sender_id = $1::uuid THEN cm.receiver_id ELSE cm.sender_id END
+            WHERE cm.sender_id = $1::uuid OR cm.receiver_id = $1::uuid
             ORDER BY cm.thread_key, cm.created_at DESC
         `, [userId]);
         res.json({ conversations: rows });
@@ -38,7 +38,11 @@ router.get('/conversations', async (req, res) => {
 router.get('/messages/:threadKey', async (req, res) => {
     const userId = req.session.user.id;
     const { threadKey } = req.params;
-    if (!threadKey.includes(userId)) return res.status(403).json({ error: 'Forbidden' });
+    // Verify user is part of this thread
+    const parts = threadKey.split('_');
+    if (parts.length !== 2 || !parts.includes(userId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
     try {
         const { rows } = await pool.query(`
             SELECT cm.*, u.full_name AS sender_name, u.email AS sender_email
@@ -50,7 +54,7 @@ router.get('/messages/:threadKey', async (req, res) => {
         `, [threadKey]);
         // Mark as read
         await pool.query(
-            `UPDATE chat_messages SET read = TRUE WHERE thread_key = $1 AND receiver_id = $2 AND read = FALSE`,
+            `UPDATE chat_messages SET read = TRUE WHERE thread_key = $1 AND receiver_id = $2::uuid AND read = FALSE`,
             [threadKey, userId]
         );
         res.json({ messages: rows });
