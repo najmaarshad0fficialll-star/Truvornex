@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
+import { supabase } from '@/api/supabaseClient';
 
 const EMERGENCY_CATEGORIES = [
     { id: 'plumbing',   label: 'Plumbing',    Icon: Wrench       },
@@ -38,16 +39,11 @@ export default function EmergencyRequest() {
     const load = async () => {
         if (!user) { setLoading(false); return; }
         setLoading(true);
-        try {
-            const res = await fetch('/api/emergency-requests');
-            const { data } = await res.json();
-            if (data) {
-                setRequests(data);
-                const active = data.find(r => !['resolved', 'cancelled'].includes(r.status));
-                if (active) setActiveReq(active);
-            }
-        } catch (e) {
-            console.error('Failed to load emergency requests', e);
+        const { data } = await supabase.from('emergency_requests').select('*').eq('customer_id', user.id).order('created_at', { ascending: false });
+        if (data) {
+            setRequests(data);
+            const active = data.find(r => !['resolved', 'cancelled'].includes(r.status));
+            if (active) setActiveReq(active);
         }
         setLoading(false);
     };
@@ -68,43 +64,36 @@ export default function EmergencyRequest() {
         if (!form.description.trim()) { toast.error('Describe the issue'); return; }
         if (!user) { toast.error('Sign in first'); return; }
         setSubmitting(true);
-        try {
-            const res = await fetch('/api/emergency-requests', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    category: form.category,
-                    urgency: form.urgency,
-                    description: form.description.trim(),
-                    lat: loc?.lat ?? null,
-                    lng: loc?.lng ?? null
-                })
-            });
-            const { data, error } = await res.json();
-            if (error) throw new Error(error);
+        // Get default zone
+        const { data: zones } = await supabase.from('neighborhood_zones').select('id').limit(1);
+        const zoneId = zones?.[0]?.id || null;
+        const { data, error } = await supabase.from('emergency_requests').insert([{
+            customer_id: user.id,
+            category: form.category,
+            urgency: form.urgency,
+            description: form.description.trim(),
+            lat: loc?.lat ?? null,
+            lng: loc?.lng ?? null,
+            zone_id: zoneId
+        }]).select().single();
+        if (!error && data) {
             setActiveReq(data);
             setRequests(p => [data, ...p]);
             setForm({ category: '', urgency: 'immediate', description: '' });
             setLoc(null);
             toast.success('Emergency request submitted — matching providers now');
-        } catch (err) { toast.error(err.message || 'Failed to submit'); }
-        finally { setSubmitting(false); }
+        } else { toast.error(error?.message || 'Failed to submit'); }
+        setSubmitting(false);
     };
 
     const cancel = async () => {
         if (!activeReq) return;
-        try {
-            await fetch(`/api/emergency-requests/${activeReq.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ status: 'cancelled' })
-            });
+        const { error } = await supabase.from('emergency_requests').update({ status: 'cancelled' }).eq('id', activeReq.id);
+        if (!error) {
             setActiveReq(null);
             load();
             toast.success('Request cancelled');
-        } catch (e) {
+        } else {
             toast.error('Failed to cancel request');
         }
     };

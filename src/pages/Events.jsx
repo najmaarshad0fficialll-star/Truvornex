@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
+import { supabase } from '@/api/supabaseClient';
 
 const CATEGORY_ICONS = {
     concert: Music, workshop: Wrench, meetup: Users, sports: Zap,
@@ -55,25 +56,15 @@ export default function Events() {
 
     const loadEvents = async () => {
         setLoading(true);
-        try {
-            const res = await fetch('/api/events');
-            const { data } = await res.json();
-            if (data) setEvents(data);
-        } catch (e) {
-            console.error('Failed to load events', e);
-        }
+        const { data } = await supabase.from('events').select('*').order('date', { ascending: true });
+        if (data) setEvents(data);
         setLoading(false);
     };
     const loadMyTickets = async () => {
         if (!user) return;
         setTicketsLoading(true);
-        try {
-            const res = await fetch('/api/event-tickets/my');
-            const { data } = await res.json();
-            if (data) setMyTickets(data);
-        } catch (e) {
-            console.error('Failed to load tickets', e);
-        }
+        const { data } = await supabase.from('event_tickets').select('*').eq('buyer_email', user.email).order('created_at', { ascending: false });
+        if (data) setMyTickets(data);
         setTicketsLoading(false);
     };
 
@@ -91,24 +82,19 @@ export default function Events() {
         if (!user) { toast.error('Sign in to create an event'); return; }
         setSaving(true);
         try {
-            const res = await fetch('/api/events', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    title: form.title, description: form.description || null,
-                    category: form.category, venue_name: form.venue_name,
-                    venue_type: form.venue_type, address: form.address || null,
-                    date: form.date, start_time: form.start_time || null,
-                    end_time: form.end_time || null,
-                    organizer_name: form.organizer_name || user.full_name || user.email?.split('@')[0],
-                    ticket_price: form.is_free ? 0 : form.ticket_price,
-                    is_free: form.is_free, total_tickets: form.total_tickets,
-                    bundle_services: form.bundle_services
-                })
-            });
-            const { error } = await res.json();
-            if (error) throw new Error(error);
+            const { error } = await supabase.from('events').insert([{
+                title: form.title, description: form.description || null,
+                category: form.category, venue_name: form.venue_name,
+                venue_type: form.venue_type, address: form.address || null,
+                date: form.date, start_time: form.start_time || null,
+                end_time: form.end_time || null,
+                organizer_name: form.organizer_name || user.full_name || user.email?.split('@')[0],
+                organizer_id: user.id,
+                ticket_price: form.is_free ? 0 : form.ticket_price,
+                is_free: form.is_free, total_tickets: form.total_tickets,
+                bundle_services: form.bundle_services
+            }]);
+            if (error) throw error;
             toast.success('Event published');
             setCreateDialog(false);
             setForm(EMPTY_EVENT);
@@ -121,19 +107,19 @@ export default function Events() {
         if (!user) { toast.error('Please log in to get tickets'); return; }
         setBuying(true);
         try {
-            const res = await fetch('/api/event-tickets', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    event_id: event.id, event_title: event.title,
-                    quantity: qty, unit_price: event.ticket_price || 0
-                })
-            });
-            const { data, error } = await res.json();
-            if (error) throw new Error(error);
+            const ticketCode = `TKT-${Date.now().toString(36).toUpperCase()}`;
+            const { error } = await supabase.from('event_tickets').insert([{
+                event_id: event.id, event_title: event.title,
+                buyer_email: user.email, buyer_name: user.full_name || user.email?.split('@')[0],
+                quantity: qty, unit_price: event.ticket_price || 0,
+                total_amount: (event.ticket_price || 0) * qty,
+                ticket_code: ticketCode
+            }]);
+            if (error) throw error;
+            // Update tickets sold count
+            await supabase.from('events').update({ tickets_sold: (event.tickets_sold || 0) + qty }).eq('id', event.id);
             setEvents(prev => prev.map(e => e.id === event.id ? { ...e, tickets_sold: (e.tickets_sold || 0) + qty } : e));
-            toast.success(`Ticket booked — Code: ${data?.ticket_code || 'confirmed'}`);
+            toast.success(`Ticket booked — Code: ${ticketCode}`);
             setTicketDialog(null);
         } catch (err) { toast.error(err.message || 'Failed to book ticket'); }
         finally { setBuying(false); }

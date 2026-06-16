@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 
 const POST_TYPES = {
@@ -68,13 +69,10 @@ function PostComments({ postId, user, replyCount, onCountChange }) {
 
     const load = async () => {
         setLoading(true);
-        try {
-            const res = await fetch(`/api/post-comments/${postId}`);
-            const { data } = await res.json();
-            if (data) setComments(data);
-        } catch (e) {
-            console.error('Failed to load comments', e);
-        }
+        const { data } = await supabase
+            .from('post_comments').select('*')
+            .eq('post_id', postId).order('created_at', { ascending: true }).limit(30);
+        if (data) setComments(data);
         setLoading(false);
     };
 
@@ -84,24 +82,18 @@ function PostComments({ postId, user, replyCount, onCountChange }) {
         if (!input.trim()) return;
         if (!user) { toast.error('Sign in to comment'); return; }
         setSubmitting(true);
-        const comment = {
-            post_id: postId, author_email: user.email,
+        const { data, error } = await supabase.from('post_comments').insert([{
+            post_id: postId,
+            author_email: user.email,
             author_name: user.full_name || user.email?.split('@')[0],
-            body: input.trim(), created_at: new Date().toISOString(), id: Date.now(),
-        };
-        setComments(prev => [...prev, comment]);
-        onCountChange && onCountChange(1);
-        setInput('');
-        try {
-            await fetch('/api/post-comments', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ post_id: postId, body: comment.body })
-            });
-        } catch (e) {
-            console.error('Failed to post comment', e);
+            body: input.trim(),
+            author_id: user.id
+        }]).select().single();
+        if (!error && data) {
+            setComments(prev => [...prev, data]);
+            onCountChange && onCountChange(1);
         }
+        setInput('');
         setSubmitting(false);
     };
 
@@ -276,16 +268,7 @@ function PollCard({ poll, user }) {
         const stored = JSON.parse(localStorage.getItem('voted_polls') || '{}');
         stored[poll.id] = idx;
         localStorage.setItem('voted_polls', JSON.stringify(stored));
-        try {
-            await fetch(`/api/neighborhood-polls/${poll.id}/vote`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ options: updated })
-            });
-        } catch (e) {
-            console.error('Failed to record vote', e);
-        }
+        await supabase.from('neighborhood_polls').update({ options: updated }).eq('id', poll.id);
     };
 
     return (
@@ -356,35 +339,20 @@ export default function Community() {
 
     const loadPosts = async () => {
         setLoading(true);
-        try {
-            const res = await fetch('/api/community-posts');
-            const { data } = await res.json();
-            if (data) setPosts(data);
-        } catch (e) {
-            console.error('Failed to load posts', e);
-        }
+        const { data } = await supabase.from('community_posts').select('*').order('created_date', { ascending: false }).limit(50);
+        if (data) setPosts(data);
         setLoading(false);
     };
     const loadEvents = async () => {
         setEventsLoading(true);
-        try {
-            const res = await fetch('/api/events');
-            const { data } = await res.json();
-            if (data) setEvents(data);
-        } catch (e) {
-            console.error('Failed to load events', e);
-        }
+        const { data } = await supabase.from('events').select('*').order('date', { ascending: true }).limit(20);
+        if (data) setEvents(data);
         setEventsLoading(false);
     };
     const loadPolls = async () => {
         setPollsLoading(true);
-        try {
-            const res = await fetch('/api/neighborhood-polls');
-            const { data } = await res.json();
-            if (data) setPolls(data);
-        } catch (e) {
-            console.error('Failed to load polls', e);
-        }
+        const { data } = await supabase.from('neighborhood_polls').select('*').order('created_at', { ascending: false }).limit(20);
+        if (data) setPolls(data);
         setPollsLoading(false);
     };
 
@@ -417,16 +385,7 @@ export default function Community() {
         setLikedPosts(newLiked);
         localStorage.setItem('likedPosts', JSON.stringify([...newLiked]));
         setPosts(prev => prev.map(p => p.id === post.id ? { ...p, upvotes: Math.max(0, (p.upvotes || 0) + delta) } : p));
-        try {
-            await fetch(`/api/community-posts/${post.id}/vote`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ delta })
-            });
-        } catch (e) {
-            console.error('Failed to update vote', e);
-        }
+        await supabase.from('community_posts').update({ upvotes: Math.max(0, (post.upvotes || 0) + delta) }).eq('id', post.id);
     };
 
     const createPost = async () => {
@@ -436,26 +395,28 @@ export default function Community() {
         try {
             let image_url = null;
             if (imageFile) {
-                const reader = new FileReader();
-                image_url = await new Promise((resolve) => {
-                    reader.onload = () => resolve(reader.result);
-                    reader.readAsDataURL(imageFile);
-                });
+                const ext = imageFile.name.split('.').pop();
+                const path = `${user.id}/${Date.now()}.${ext}`;
+                const { error: uploadError } = await supabase.storage.from('community-posts').upload(path, imageFile, { cacheControl: '3600', upsert: false, contentType: imageFile.type });
+                if (!uploadError) {
+                    const { data } = supabase.storage.from('community-posts').getPublicUrl(path);
+                    image_url = data.publicUrl;
+                } else {
+                    console.error('Image upload failed', uploadError);
+                }
             }
-            const res = await fetch('/api/community-posts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    type: postForm.type, title: postForm.title || null, body: postForm.body || null,
-                    neighborhood: postForm.neighborhood || null, contact_email: postForm.contact_email || null,
-                    job_type: postForm.job_type || null, job_salary: postForm.job_salary || null,
-                    skill_offer: postForm.skill_offer || null, skill_want: postForm.skill_want || null,
-                    image_url: image_url
-                })
-            });
-            const { data, error } = await res.json();
-            if (error) throw new Error(error);
+            const { error } = await supabase.from('community_posts').insert([{
+                type: postForm.type, title: postForm.title || null, body: postForm.body || null,
+                neighborhood: postForm.neighborhood || null, contact_email: postForm.contact_email || null,
+                job_type: postForm.job_type || null, job_salary: postForm.job_salary || null,
+                skill_offer: postForm.skill_offer || null, skill_want: postForm.skill_want || null,
+                author_email: user.email,
+                author_name: user.full_name || user.email?.split('@')[0],
+                author_id: user.id,
+                upvotes: 0, reply_count: 0, is_resolved: false,
+                image_url
+            }]);
+            if (error) throw error;
             toast.success('Post published');
             closePostDialog();
             loadPosts();
@@ -470,18 +431,15 @@ export default function Community() {
         if (!user) { toast.error('Sign in to create a poll'); return; }
         setSaving(true);
         try {
-            const res = await fetch('/api/neighborhood-polls', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    question: pollForm.question.trim(),
-                    neighborhood: pollForm.neighborhood || null,
-                    options: validOptions.map(text => ({ text, votes: 0 }))
-                })
-            });
-            const { error } = await res.json();
-            if (error) throw new Error(error);
+            const { error } = await supabase.from('neighborhood_polls').insert([{
+                question: pollForm.question.trim(),
+                neighborhood: pollForm.neighborhood || null,
+                options: validOptions.map(text => ({ text, votes: 0 })),
+                created_by_email: user.email,
+                created_by_name: user.full_name || user.email?.split('@')[0],
+                created_by: user.id
+            }]);
+            if (error) throw error;
             toast.success('Poll created');
             setCreatePollDialog(false);
             setPollForm(EMPTY_POLL);
@@ -645,7 +603,7 @@ export default function Community() {
                         <span className="text-[10px] text-zinc-400">{polls.length} active poll{polls.length !== 1 ? 's' : ''}</span>
                     </div>
                     {pollsLoading ? (
-                        <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="skeleton-wave h-140 rounded-2xl" />)}</div>
+                        <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="skeleton-wave h-40 rounded-2xl" />)}</div>
                     ) : polls.length === 0 ? (
                         <div className="border border-zinc-200 dark:border-zinc-800 rounded-2xl p-12 text-center bg-zinc-50 dark:bg-zinc-900/50">
                             <Vote className="h-8 w-8 mx-auto mb-3 text-zinc-300 dark:text-zinc-700" strokeWidth={1.5} />
