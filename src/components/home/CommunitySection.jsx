@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { supabase } from '@/api/supabaseClient';
 
 const POST_TYPES = {
     announcement:  { icon: Megaphone,     label: 'Announcement', color: 'bg-blue-100 text-blue-700'    },
@@ -28,13 +29,8 @@ export default function CommunitySection({ user }) {
 
     const load = async () => {
         setLoading(true);
-        try {
-            const res = await fetch('/api/community-posts');
-            const { data } = await res.json();
-            if (data) setPosts(data);
-        } catch (e) {
-            console.error('Failed to load posts', e);
-        }
+        const { data } = await supabase.from('community_posts').select('*').order('created_date', { ascending: false }).limit(20);
+        if (data) setPosts(data);
         setLoading(false);
     };
 
@@ -44,40 +40,36 @@ export default function CommunitySection({ user }) {
 
     const upvote = async (post) => {
         setPosts(prev => prev.map(p => p.id === post.id ? { ...p, upvotes: (p.upvotes || 0) + 1 } : p));
-        try {
-            await fetch(`/api/community-posts/${post.id}/vote`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ delta: 1 })
-            });
-        } catch (e) {
-            console.error('Failed to upvote', e);
-        }
+        await supabase.from('community_posts').update({ upvotes: (post.upvotes || 0) + 1 }).eq('id', post.id);
     };
 
     const create = async () => {
         if (!form.title || !form.body) { toast.error('Title and message required'); return; }
+        if (!user) { toast.error('Please sign in first'); return; }
         setSaving(true);
-        try {
-            const res = await fetch('/api/community-posts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    ...form,
-                    author_email: user?.email,
-                    author_name: user?.full_name || user?.email
-                })
-            });
-            const { error } = await res.json();
-            if (error) throw new Error(error);
+        const { error } = await supabase.from('community_posts').insert([{
+            type: form.type,
+            title: form.title,
+            body: form.body,
+            neighborhood: form.neighborhood || null,
+            skill_offer: form.skill_offer || null,
+            skill_want: form.skill_want || null,
+            job_type: form.job_type || null,
+            job_salary: form.job_salary || null,
+            contact_email: form.contact_email || null,
+            author_email: user.email,
+            author_name: user.full_name || user.email?.split('@')[0],
+            author_id: user.id,
+            upvotes: 0,
+            reply_count: 0
+        }]);
+        if (!error) {
             toast.success('Posted to community feed!');
             setPostDialog(false);
             setForm({ type: 'general', title: '', body: '', neighborhood: '', skill_offer: '', skill_want: '', job_type: '', job_salary: '', contact_email: '' });
             load();
-        } catch (e) {
-            toast.error(e.message || 'Failed to post');
+        } else {
+            toast.error(error.message || 'Failed to post');
         }
         setSaving(false);
     };

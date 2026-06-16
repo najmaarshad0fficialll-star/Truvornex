@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTheme } from '@/lib/ThemeContext';
 import { useSimon } from '@/lib/SimonContext';
 import { useAuthModal } from '@/lib/AuthModalContext';
+import { useAuth } from '@/lib/AuthContext';
+import { supabase } from '@/api/supabaseClient';
 import {
     Search, Sparkles, MapPin, ChevronRight, Star,
     Sparkle, Zap, Wrench, Droplets, ChefHat, Truck,
@@ -11,8 +13,13 @@ import {
     Navigation, Users, Ticket, Layers, Package, MessageSquare,
     ThumbsUp, Tag, BarChart3, TrendingUp,
     Cpu, Brain, TrendingDown, Bell, X, ChevronRight as Chevron,
-    Activity, AlertCircle, Lightbulb,
+    Activity, AlertCircle, Lightbulb, Plus, Send, Loader2, Megaphone, HelpCircle, Briefcase, RefreshCw,
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from 'sonner';
 
 // ── Simon proactive insight data ──────────────────────────────────────────────
 
@@ -237,11 +244,54 @@ export default function Home() {
     const navigate = useNavigate();
     const { theme } = useTheme();
     const isDark = theme === 'dark';
+    const { user } = useAuth();
 
     const [search, setSearch]               = useState('');
     const [searchFocused, setSearchFocused] = useState(false);
     const [visible, setVisible]             = useState(false);
     const [city, setCity]                   = useState(null);
+    const [communityPosts, setCommunityPosts] = useState([]);
+    const [communityLoading, setCommunityLoading] = useState(true);
+    const [postDialog, setPostDialog] = useState(false);
+    const [postForm, setPostForm] = useState({ type: 'general', title: '', body: '' });
+    const [posting, setPosting] = useState(false);
+
+    // Load community posts from Supabase
+    useEffect(() => {
+        const loadPosts = async () => {
+            const { data } = await supabase.from('community_posts').select('*').order('created_date', { ascending: false }).limit(5);
+            if (data) setCommunityPosts(data);
+            setCommunityLoading(false);
+        };
+        loadPosts();
+    }, []);
+
+    const createPost = async () => {
+        if (!postForm.title || !postForm.body) { toast.error('Title and message required'); return; }
+        if (!user) { toast.error('Please sign in first'); return; }
+        setPosting(true);
+        const { error } = await supabase.from('community_posts').insert([{
+            type: postForm.type,
+            title: postForm.title,
+            body: postForm.body,
+            author_email: user.email,
+            author_name: user.full_name || user.email?.split('@')[0],
+            author_id: user.id,
+            upvotes: 0,
+            reply_count: 0
+        }]);
+        if (!error) {
+            toast.success('Posted!');
+            setPostDialog(false);
+            setPostForm({ type: 'general', title: '', body: '' });
+            // Reload posts
+            const { data } = await supabase.from('community_posts').select('*').order('created_date', { ascending: false }).limit(5);
+            if (data) setCommunityPosts(data);
+        } else {
+            toast.error(error.message || 'Failed to post');
+        }
+        setPosting(false);
+    };
 
     useEffect(() => { const t = setTimeout(() => setVisible(true), 80); return () => clearTimeout(t); }, []);
 
@@ -548,32 +598,65 @@ export default function Home() {
 
             {/* ── Community ─────────────────────────────────────────────── */}
             <section style={anim(0.18)}>
-                <SectionHeader title={city ? `Community · ${city}` : 'Community'} href="/community" label="Open board" />
+                <div className="flex items-center justify-between mb-2.5">
+                    <h2 className="text-sm font-bold" style={{ color: 'var(--color-primary)', letterSpacing: '-0.03em' }}>{city ? `Community · ${city}` : 'Community'}</h2>
+                    <div className="flex items-center gap-2">
+                        {user && (
+                            <button onClick={() => setPostDialog(true)} className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-colors"
+                                style={{ background: 'var(--color-surface-high)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' }}>
+                                <Plus className="h-3 w-3" /> Post
+                            </button>
+                        )}
+                        <Link to="/community" className="flex items-center gap-0.5 text-[11px] font-medium transition-colors"
+                            style={{ color: 'var(--color-text-subtle)', textDecoration: 'none' }}>
+                            Open board <ChevronRight style={{ width: 12, height: 12 }} />
+                        </Link>
+                    </div>
+                </div>
                 <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                    {COMMUNITY.map((post, i) => (
-                        <div key={post.id} onClick={() => navigate('/community')}
-                            className="flex gap-2.5 px-3.5 py-2.5 cursor-pointer transition-colors"
-                            style={{ borderBottom: i < COMMUNITY.length - 1 ? '1px solid var(--color-border)' : 'none' }}
-                            {...rowHover}>
-                            <span className="text-base shrink-0 leading-tight mt-0.5">{post.emoji}</span>
-                            <div className="flex-1 min-w-0">
-                                <div className="text-[11px] font-bold truncate mb-0.5" style={{ color: 'var(--color-primary)', letterSpacing: '-0.01em' }}>{post.title}</div>
-                                <p className="text-[10px] m-0 truncate" style={{ color: 'var(--color-text-muted)' }}>{post.body}</p>
-                                <div className="flex items-center gap-3 mt-1.5">
-                                    <span className="text-[9px]" style={{ color: 'var(--color-text-subtle)' }}>{post.author}</span>
-                                    <span className="flex items-center gap-1 text-[9px]" style={{ color: 'var(--color-text-subtle)' }}>
-                                        <ThumbsUp style={{ width: 8, height: 8 }} />{post.likes}
-                                    </span>
-                                    <span className="flex items-center gap-1 text-[9px]" style={{ color: 'var(--color-text-subtle)' }}>
-                                        <MessageSquare style={{ width: 8, height: 8 }} />{post.replies}
-                                    </span>
+                    {communityLoading ? (
+                        <div className="p-4 text-center text-xs" style={{ color: 'var(--color-text-subtle)' }}>Loading...</div>
+                    ) : communityPosts.length === 0 ? (
+                        <div className="p-6 text-center">
+                            <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" style={{ color: 'var(--color-text-subtle)' }} />
+                            <p className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>No posts yet. Be the first!</p>
+                        </div>
+                    ) : (
+                        communityPosts.map((post, i) => (
+                            <div key={post.id} onClick={() => navigate('/community')}
+                                className="flex gap-2.5 px-3.5 py-2.5 cursor-pointer transition-colors"
+                                style={{ borderBottom: i < communityPosts.length - 1 ? '1px solid var(--color-border)' : 'none' }}
+                                {...rowHover}>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-0.5">
+                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                                            style={{ background: post.type === 'job' ? 'var(--color-surface-high)' : post.type === 'announcement' ? 'rgba(59,130,246,0.1)' : 'var(--color-surface-high)', color: 'var(--color-text-muted)' }}>
+                                            {post.type || 'post'}
+                                        </span>
+                                        {post.neighborhood && (
+                                            <span className="text-[9px]" style={{ color: 'var(--color-text-subtle)' }}>
+                                                <MapPin className="h-2.5 w-2.5 inline mr-0.5" />{post.neighborhood}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="text-[11px] font-bold truncate mb-0.5" style={{ color: 'var(--color-primary)', letterSpacing: '-0.01em' }}>{post.title}</div>
+                                    <p className="text-[10px] m-0 truncate" style={{ color: 'var(--color-text-muted)' }}>{post.body}</p>
+                                    <div className="flex items-center gap-3 mt-1.5">
+                                        <span className="text-[9px]" style={{ color: 'var(--color-text-subtle)' }}>{post.author_name || post.author_email?.split('@')[0]}</span>
+                                        <span className="flex items-center gap-1 text-[9px]" style={{ color: 'var(--color-text-subtle)' }}>
+                                            <ThumbsUp style={{ width: 8, height: 8 }} />{post.upvotes || 0}
+                                        </span>
+                                        <span className="flex items-center gap-1 text-[9px]" style={{ color: 'var(--color-text-subtle)' }}>
+                                            <MessageSquare style={{ width: 8, height: 8 }} />{post.reply_count || 0}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        ))
+                    )}
                     <div className="flex items-center justify-between px-3.5 py-2.5" style={{ borderTop: '1px solid var(--color-border)' }}>
                         <span className="text-[10px]" style={{ color: 'var(--color-text-subtle)' }}>Jobs · Lost & Found · Announcements</span>
-                        <button onClick={() => navigate('/community')}
+                        <button onClick={() => user ? setPostDialog(true) : navigate('/login')}
                             className="flex items-center gap-1 text-[11px] font-semibold transition-colors"
                             style={{ color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                             onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-primary)')}
@@ -768,6 +851,24 @@ export default function Home() {
                     </div>
                 </div>
             </section>
+
+            {/* Post Dialog */}
+            <Dialog open={postDialog} onOpenChange={setPostDialog}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader><DialogTitle>New Community Post</DialogTitle></DialogHeader>
+                    <div className="space-y-3 pt-1">
+                        <Input placeholder="Title *" value={postForm.title} onChange={e => setPostForm(p => ({ ...p, title: e.target.value }))} className="rounded-xl" />
+                        <Textarea placeholder="What's on your mind? *" value={postForm.body} onChange={e => setPostForm(p => ({ ...p, body: e.target.value }))} className="rounded-xl resize-none" rows={3} />
+                        <div className="flex gap-2">
+                            <Button variant="outline" className="flex-1 h-10 rounded-xl" onClick={() => setPostDialog(false)}>Cancel</Button>
+                            <Button className="flex-1 h-10 rounded-xl gap-2" onClick={createPost} disabled={posting}>
+                                {posting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                {posting ? 'Posting...' : 'Post'}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
         </div>
     );
