@@ -111,7 +111,7 @@ export default function Login() {
 
                     <h1 className="text-5xl font-black text-white leading-[1.1] mb-6 tracking-tight">
                         Every service,<br />
-                        <span style={{ color: '#7c6fcd' }}>at your fingertips.</span>
+                        <span style={{ fontFamily: "'Great Vibes', cursive", fontSize: '3.5rem', fontWeight: 400, color: '#7c6fcd', letterSpacing: '0.01em' }}>at your fingertips.</span>
                     </h1>
                     <p className="text-lg leading-relaxed mb-12" style={{ color: 'rgba(255,255,255,0.55)' }}>
                         Connect with trusted, verified service providers in your neighborhood — powered by Simon AI.

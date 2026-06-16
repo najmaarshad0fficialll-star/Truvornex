@@ -350,11 +350,23 @@ export default function Home() {
                     AI-powered neighborhood services
                 </div>
 
-                {/* headline — one line on all screens */}
+                {/* headline */}
                 <h1 className="font-black leading-tight mb-2"
                     style={{ ...anim(0.04), fontSize: 'clamp(1.15rem,5.2vw,2.6rem)', letterSpacing: '-0.045em', color: 'var(--color-primary)', whiteSpace: 'nowrap' }}>
                     Every service,{' '}
-                    <span className="hero-gradient-text">at your fingertips.</span>
+                    <span style={{
+                        fontFamily: "'Great Vibes', cursive",
+                        fontSize: 'clamp(1.5rem,6.5vw,3.3rem)',
+                        fontWeight: 400,
+                        letterSpacing: '0.01em',
+                        background: 'linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent-2) 100%)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                        display: 'inline-block',
+                        lineHeight: 1,
+                        verticalAlign: 'middle',
+                    }}>at your fingertips.</span>
                 </h1>
 
                 {/* short subtitle */}

@@ -8,6 +8,7 @@ const SLIDES = [
         title: 'Your Neighborhood\nOS Has Arrived',
         subtitle: 'Truvornex connects you with trusted local service providers — powered by Simon AI, built for your community.',
         Visual: Building2,
+        accentChar: '01',
         features: [
             { icon: Zap,    text: '2,400+ verified providers in your area' },
             { icon: Shield, text: 'Every booking is insured & guaranteed'  },
@@ -20,6 +21,7 @@ const SLIDES = [
         title: 'One App for\nEvery Home Need',
         subtitle: 'From emergency plumbing at 2am to weekly cleaning — book any local service in 60 seconds, 24/7.',
         Visual: Home,
+        accentChar: '02',
         features: [
             { icon: Clock,  text: 'Same-day & emergency bookings'      },
             { icon: MapPin, text: 'Hyperlocal providers in your street' },
@@ -32,6 +34,7 @@ const SLIDES = [
         title: 'Community-First\nService Platform',
         subtitle: "We built Truvornex because finding trustworthy help shouldn't take hours of Googling, calling, and hoping.",
         Visual: Handshake,
+        accentChar: '03',
         features: [
             { icon: Users,    text: 'Neighbors vouching for every provider' },
             { icon: Globe,    text: 'Group buy deals — save up to 35%'       },
@@ -44,6 +47,7 @@ const SLIDES = [
         title: 'Ready to Transform\nYour Neighborhood?',
         subtitle: 'Join 2,400+ households already using Truvornex. It only takes 30 seconds to get started.',
         Visual: Rocket,
+        accentChar: '04',
         features: [
             { icon: CheckCircle2, text: 'Free to join — no hidden fees'  },
             { icon: Briefcase,    text: 'Providers earn more, stress less' },
@@ -55,18 +59,18 @@ const SLIDES = [
 
 export default function IntroFlow({ onComplete }) {
     const [current, setCurrent] = useState(0);
-    const [exiting, setExiting] = useState(false);
-    const [direction, setDirection] = useState(1);
+    const [animating, setAnimating] = useState(false);
+    const [exitDir, setExitDir] = useState(1);
     const touchStartX = useRef(null);
 
     const slide = SLIDES[current];
     const isLast = current === SLIDES.length - 1;
 
     const goTo = (idx) => {
-        if (idx === current || idx < 0 || idx >= SLIDES.length) return;
-        setDirection(idx > current ? 1 : -1);
-        setExiting(true);
-        setTimeout(() => { setCurrent(idx); setExiting(false); }, 250);
+        if (idx === current || idx < 0 || idx >= SLIDES.length || animating) return;
+        setExitDir(idx > current ? 1 : -1);
+        setAnimating(true);
+        setTimeout(() => { setCurrent(idx); setAnimating(false); }, 300);
     };
 
     const next = () => isLast ? finish() : goTo(current + 1);
@@ -90,183 +94,197 @@ export default function IntroFlow({ onComplete }) {
     return (
         <div
             className="fixed inset-0 z-[9998] flex flex-col overflow-hidden"
-            style={{ backgroundColor: 'var(--color-bg)' }}
+            style={{ backgroundColor: '#080808' }}
             onTouchStart={onTouchStart}
             onTouchEnd={onTouchEnd}
         >
-            {/* Background grid */}
-            <div className="absolute inset-0 pointer-events-none" style={{
-                backgroundImage: 'linear-gradient(var(--color-border) 1px, transparent 1px), linear-gradient(90deg, var(--color-border) 1px, transparent 1px)',
-                backgroundSize: '52px 52px',
-            }} />
+            {/* Atmospheric background */}
+            <div className="absolute inset-0 pointer-events-none">
+                {/* Fine grid */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
+                    backgroundSize: '48px 48px',
+                }} />
+                {/* Top center radial glow */}
+                <div style={{
+                    position: 'absolute',
+                    top: -100, left: '50%', transform: 'translateX(-50%)',
+                    width: 600, height: 500,
+                    background: 'radial-gradient(ellipse, rgba(255,255,255,0.05) 0%, transparent 65%)',
+                    pointerEvents: 'none',
+                }} />
+                {/* Bottom glow */}
+                <div style={{
+                    position: 'absolute',
+                    bottom: -60, left: '50%', transform: 'translateX(-50%)',
+                    width: 500, height: 300,
+                    background: 'radial-gradient(ellipse, rgba(255,255,255,0.025) 0%, transparent 70%)',
+                    pointerEvents: 'none',
+                }} />
+            </div>
 
-            {/* Ambient glow */}
-            <div className="absolute inset-0 pointer-events-none" style={{
-                background: 'radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.02) 0%, transparent 60%)',
-            }} />
-
-            {/* Skip button */}
-            <div className="absolute top-5 right-5 z-10">
+            {/* Skip */}
+            <div className="absolute top-5 right-5 z-20">
                 <button onClick={finish} style={{
-                    fontSize: 11.5,
+                    fontSize: 11,
                     fontWeight: 600,
-                    letterSpacing: '0.05em',
-                    color: 'var(--color-text-subtle)',
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid var(--color-border)',
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: 'rgba(255,255,255,0.3)',
+                    background: 'none',
+                    border: 'none',
                     cursor: 'pointer',
-                    padding: '6px 12px',
-                    borderRadius: 8,
+                    padding: '8px 4px',
                     touchAction: 'manipulation',
-                    transition: 'all 0.2s ease',
-                }}>
+                    transition: 'color 0.2s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.6)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.3)'}>
                     Skip
                 </button>
             </div>
 
-            {/* Content */}
-            <div className="flex-1 flex flex-col items-center justify-center px-6 pb-4 relative z-10">
+            {/* Slide number watermark */}
+            <div style={{
+                position: 'absolute',
+                top: '50%', right: 20,
+                transform: 'translateY(-50%)',
+                fontSize: 80,
+                fontWeight: 900,
+                color: 'rgba(255,255,255,0.025)',
+                letterSpacing: '-0.06em',
+                lineHeight: 1,
+                fontFamily: "'Plus Jakarta Sans', sans-serif",
+                pointerEvents: 'none',
+                userSelect: 'none',
+                transition: 'all 0.4s ease',
+            }}>
+                {slide.accentChar}
+            </div>
+
+            {/* Main content */}
+            <div className="flex-1 flex flex-col items-center justify-center px-6 relative z-10">
                 <div style={{
                     width: '100%',
-                    maxWidth: 400,
-                    opacity: exiting ? 0 : 1,
-                    transform: exiting ? `translateX(${direction > 0 ? '-32px' : '32px'}) scale(0.98)` : 'translateX(0) scale(1)',
-                    transition: 'opacity 0.25s ease, transform 0.25s cubic-bezier(0.19,1,0.22,1)',
+                    maxWidth: 420,
+                    opacity: animating ? 0 : 1,
+                    transform: animating ? `translateX(${exitDir > 0 ? '-40px' : '40px'})` : 'translateX(0)',
+                    transition: 'opacity 0.28s ease, transform 0.28s cubic-bezier(0.19,1,0.22,1)',
                 }}>
-                    {/* Icon container */}
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
-                        <div style={{
-                            width: 64,
-                            height: 64,
-                            borderRadius: 18,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            background: 'linear-gradient(145deg, var(--color-surface-high) 0%, var(--color-surface) 100%)',
-                            border: '1px solid var(--color-border-strong)',
-                            boxShadow: `
-                                0 8px 32px rgba(0,0,0,0.5),
-                                0 2px 8px rgba(0,0,0,0.4),
-                                inset 0 1px 0 rgba(255,255,255,0.06)
-                            `,
-                            position: 'relative',
-                        }}>
-                            {/* Subtle glow behind */}
+                    {/* Visual icon — large prominent display */}
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+                        <div style={{ position: 'relative' }}>
+                            {/* Outer ring */}
                             <div style={{
                                 position: 'absolute',
-                                inset: -8,
-                                background: 'radial-gradient(circle, var(--color-accent-glow) 0%, transparent 70%)',
-                                opacity: 0.5,
-                                borderRadius: 24,
+                                inset: -16,
+                                borderRadius: 32,
+                                border: '1px solid rgba(255,255,255,0.06)',
+                                animation: 'introRingSpin 18s linear infinite',
                             }} />
-                            <VisualIcon style={{ width: 26, height: 26, color: 'var(--color-primary)', opacity: 0.9 }} />
+                            {/* Icon box */}
+                            <div style={{
+                                width: 80,
+                                height: 80,
+                                borderRadius: 24,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: 'linear-gradient(145deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+                                border: '1px solid rgba(255,255,255,0.14)',
+                                boxShadow: '0 20px 60px rgba(0,0,0,0.6), 0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)',
+                                position: 'relative',
+                            }}>
+                                <VisualIcon style={{ width: 32, height: 32, color: 'rgba(255,255,255,0.9)', strokeWidth: 1.5 }} />
+                            </div>
                         </div>
                     </div>
 
                     {/* Badge */}
-                    <div style={{ textAlign: 'center', marginBottom: 12 }}>
+                    <div style={{ textAlign: 'center', marginBottom: 14 }}>
                         <span style={{
                             display: 'inline-block',
-                            fontSize: 9.5,
+                            fontSize: 9,
                             fontWeight: 700,
-                            letterSpacing: '0.12em',
+                            letterSpacing: '0.18em',
                             textTransform: 'uppercase',
-                            color: 'var(--color-text-muted)',
-                            background: 'linear-gradient(145deg, var(--color-surface-high) 0%, var(--color-surface) 100%)',
-                            border: '1px solid var(--color-border-strong)',
-                            padding: '5px 14px',
+                            color: 'rgba(255,255,255,0.45)',
+                            background: 'rgba(255,255,255,0.04)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            padding: '5px 16px',
                             borderRadius: 999,
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
                         }}>
                             {slide.badge}
                         </span>
                     </div>
 
-                    {/* Title */}
+                    {/* Title — display size */}
                     <h1 style={{
-                        fontSize: 'clamp(1.45rem, 5.5vw, 1.85rem)',
+                        fontSize: 'clamp(1.65rem,6vw,2.2rem)',
                         fontWeight: 800,
                         fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
-                        letterSpacing: '-0.045em',
-                        lineHeight: 1.08,
-                        color: 'var(--color-primary)',
+                        letterSpacing: '-0.05em',
+                        lineHeight: 1.06,
+                        color: '#ffffff',
                         textAlign: 'center',
-                        marginBottom: 14,
+                        marginBottom: 16,
                         whiteSpace: 'pre-line',
-                        textRendering: 'geometricPrecision',
                     }}>
                         {slide.title}
                     </h1>
 
                     {/* Subtitle */}
                     <p style={{
-                        fontSize: 13.5,
-                        lineHeight: 1.65,
-                        color: 'var(--color-text-muted)',
+                        fontSize: 13,
+                        lineHeight: 1.7,
+                        color: 'rgba(255,255,255,0.42)',
                         textAlign: 'center',
-                        margin: '0 auto 24px',
-                        maxWidth: 340,
-                        letterSpacing: '-0.008em',
+                        margin: '0 auto 28px',
+                        maxWidth: 320,
+                        letterSpacing: '-0.005em',
                     }}>
                         {slide.subtitle}
                     </p>
 
-                    {/* Feature list card */}
+                    {/* Feature rows */}
                     <div style={{
-                        background: 'linear-gradient(145deg, var(--color-surface) 0%, var(--color-surface-low) 100%)',
-                        border: '1px solid var(--color-border-strong)',
-                        borderRadius: 18,
-                        padding: '6px 0',
-                        boxShadow: `
-                            0 12px 40px rgba(0,0,0,0.4),
-                            0 4px 12px rgba(0,0,0,0.3),
-                            inset 0 1px 0 rgba(255,255,255,0.04)
-                        `,
-                        marginBottom: 28,
-                        position: 'relative',
-                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                        marginBottom: 8,
                     }}>
-                        {/* Subtle inner glow */}
-                        <div style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            width: '60%',
-                            height: 1,
-                            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)',
-                        }} />
-
                         {slide.features.map(({ icon: Icon, text }, i) => (
                             <div key={i} style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 14,
-                                padding: '14px 18px',
-                                borderTop: i === 0 ? 'none' : '1px solid var(--color-border)',
-                                position: 'relative',
+                                padding: '12px 16px',
+                                background: 'rgba(255,255,255,0.03)',
+                                border: '1px solid rgba(255,255,255,0.07)',
+                                borderRadius: 14,
+                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                                animation: `introFeatureIn 0.4s cubic-bezier(0.19,1,0.22,1) ${0.05 + i * 0.06}s both`,
                             }}>
-                                {/* Icon container */}
                                 <div style={{
-                                    width: 36,
-                                    height: 36,
-                                    borderRadius: 12,
+                                    width: 34,
+                                    height: 34,
+                                    borderRadius: 11,
                                     flexShrink: 0,
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    background: 'var(--color-surface-high)',
-                                    border: '1px solid var(--color-border-strong)',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.04)',
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
                                 }}>
-                                    <Icon style={{ width: 16, height: 16, color: 'var(--color-text-muted)', strokeWidth: 1.75 }} />
+                                    <Icon style={{ width: 15, height: 15, color: 'rgba(255,255,255,0.7)', strokeWidth: 1.8 }} />
                                 </div>
                                 <span style={{
                                     fontSize: 13,
-                                    lineHeight: 1.5,
-                                    color: 'var(--color-text)',
+                                    color: 'rgba(255,255,255,0.7)',
                                     fontWeight: 500,
-                                    letterSpacing: '-0.008em',
+                                    letterSpacing: '-0.01em',
+                                    lineHeight: 1.4,
                                 }}>
                                     {text}
                                 </span>
@@ -277,85 +295,95 @@ export default function IntroFlow({ onComplete }) {
             </div>
 
             {/* Bottom navigation */}
-            <div style={{ padding: '0 24px 36px', position: 'relative', zIndex: 10 }}>
-                {/* Dot indicators */}
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 20 }}>
+            <div style={{ padding: '0 24px', paddingBottom: 'max(32px, env(safe-area-inset-bottom, 32px))', position: 'relative', zIndex: 20 }}>
+                {/* Progress line + dots */}
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, marginBottom: 20 }}>
                     {SLIDES.map((_, i) => (
                         <button key={i} onClick={() => goTo(i)} style={{
-                            height: 6,
-                            width: i === current ? 28 : 6,
+                            height: 4,
+                            width: i === current ? 32 : 4,
                             borderRadius: 999,
                             border: 'none',
                             cursor: 'pointer',
                             padding: 0,
-                            backgroundColor: i === current ? 'var(--color-primary)' : 'var(--color-border-strong)',
-                            transition: 'all 0.35s cubic-bezier(0.19,1,0.22,1)',
+                            background: i === current
+                                ? 'rgba(255,255,255,0.85)'
+                                : i < current
+                                    ? 'rgba(255,255,255,0.25)'
+                                    : 'rgba(255,255,255,0.1)',
+                            transition: 'all 0.4s cubic-bezier(0.19,1,0.22,1)',
                             touchAction: 'manipulation',
-                            boxShadow: i === current ? '0 0 12px rgba(255,255,255,0.25)' : 'none',
+                            boxShadow: i === current ? '0 0 16px rgba(255,255,255,0.3)' : 'none',
                         }} />
                     ))}
                 </div>
 
-                {/* CTA button */}
+                {/* Primary CTA */}
                 <button onClick={next} style={{
                     width: '100%',
-                    height: 52,
-                    borderRadius: 14,
-                    fontSize: 14.5,
+                    height: 54,
+                    borderRadius: 16,
+                    fontSize: 15,
                     fontWeight: 700,
                     fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
-                    letterSpacing: '-0.02em',
+                    letterSpacing: '-0.025em',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 10,
-                    background: 'linear-gradient(145deg, var(--color-primary) 0%, rgba(255,255,255,0.85) 100%)',
-                    color: 'var(--color-bg)',
+                    background: '#ffffff',
+                    color: '#080808',
                     border: 'none',
                     cursor: 'pointer',
-                    boxShadow: `
-                        0 8px 28px rgba(0,0,0,0.5),
-                        0 0 0 1px rgba(255,255,255,0.1),
-                        inset 0 1px 0 rgba(255,255,255,0.2)
-                    `,
+                    boxShadow: '0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(255,255,255,0.12)',
                     touchAction: 'manipulation',
                     WebkitTapHighlightColor: 'transparent',
                     transition: 'all 0.2s ease',
                     position: 'relative',
                     overflow: 'hidden',
-                }}>
-                    {/* Shimmer effect */}
+                }}
+                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.2), 0 12px 40px rgba(255,255,255,0.18)'; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(255,255,255,0.12)'; }}
+                onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.98)'; }}
+                onMouseUp={e => { e.currentTarget.style.transform = 'translateY(-1px)'; }}>
+                    {/* Shimmer */}
                     <div style={{
-                        position: 'absolute',
-                        inset: 0,
-                        background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)',
-                        transform: 'translateX(-100%)',
-                        animation: 'btnShimmer 2.5s ease-in-out infinite',
+                        position: 'absolute', inset: 0,
+                        background: 'linear-gradient(105deg, transparent 25%, rgba(0,0,0,0.06) 50%, transparent 75%)',
+                        animation: 'introShimmer 3s ease-in-out infinite',
                     }} />
                     <span style={{ position: 'relative', zIndex: 1 }}>
-                        {isLast ? 'Get Started' : 'Next'}
+                        {isLast ? 'Get Started' : 'Continue'}
                     </span>
-                    <ArrowRight style={{ width: 18, height: 18, position: 'relative', zIndex: 1 }} />
+                    <ArrowRight style={{ width: 17, height: 17, position: 'relative', zIndex: 1 }} />
                 </button>
-
-                <style>{`
-                    @keyframes btnShimmer {
-                        0%, 100% { transform: translateX(-100%); }
-                        50% { transform: translateX(100%); }
-                    }
-                `}</style>
 
                 <p style={{
                     textAlign: 'center',
-                    fontSize: 11,
+                    fontSize: 10.5,
                     marginTop: 14,
-                    color: 'var(--color-text-subtle)',
+                    color: 'rgba(255,255,255,0.2)',
                     fontWeight: 500,
-                    letterSpacing: '0.03em',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
                 }}>
-                    {current + 1} of {SLIDES.length}
+                    {current + 1} / {SLIDES.length}
                 </p>
             </div>
+
+            <style>{`
+                @keyframes introRingSpin {
+                    to { transform: rotate(360deg); }
+                }
+                @keyframes introFeatureIn {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                @keyframes introShimmer {
+                    0%, 100% { transform: translateX(-100%); }
+                    50% { transform: translateX(100%); }
+                }
+            `}</style>
         </div>
     );
 }

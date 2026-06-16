@@ -3,7 +3,6 @@ import { useState, useEffect, useRef } from 'react';
 import SimonZonePulse from '@/components/simon/SimonZonePulse';
 import { useTheme } from '@/lib/ThemeContext';
 import { useAuth } from '@/lib/AuthContext';
-import { useAuthModal } from '@/lib/AuthModalContext';
 import {
     Home, Compass, Sparkles, BarChart3, User, Moon, Sun,
     Bell, Search, Menu, X, Briefcase,
@@ -48,7 +47,6 @@ export default function CustomerLayout() {
     const navigate = useNavigate();
     const { theme, toggleTheme } = useTheme();
     const { isAuthenticated, logout } = useAuth();
-    const { openModal } = useAuthModal();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [collapsed, setCollapsed] = useState(() =>
         localStorage.getItem('truvornex-sidebar-collapsed') === 'true'
@@ -245,7 +243,7 @@ export default function CustomerLayout() {
                 <div className="py-2" style={{ borderTop: '1px solid var(--color-border)', flexShrink: 0, padding: slim ? '8px 6px' : '8px 6px' }}>
                     {/* Sign In / Sign Out */}
                     {!isAuthenticated ? (
-                        <button onClick={() => { openModal('login'); onClose?.(); }}
+                        <button onClick={() => { navigate('/login'); onClose?.(); }}
                             className="w-full flex items-center rounded-lg transition-all mb-0.5"
                             title={slim ? 'Sign In' : undefined}
                             style={{ padding: slim ? '8px' : '8px 10px', gap: slim ? 0 : 10, justifyContent: slim ? 'center' : 'flex-start', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
