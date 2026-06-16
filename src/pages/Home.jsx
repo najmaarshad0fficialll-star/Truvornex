@@ -353,18 +353,18 @@ export default function Home() {
                 {/* headline */}
                 <h1 className="leading-tight mb-2" style={{
                     ...anim(0.04),
-                    fontFamily: "'Great Vibes', cursive",
-                    fontSize: 'clamp(1.9rem, 7vw, 3.6rem)',
-                    fontWeight: 400,
-                    letterSpacing: '0.01em',
+                    fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
+                    fontSize: 'clamp(2.1rem, 7vw, 3.5rem)',
+                    fontWeight: 800,
+                    letterSpacing: '-0.04em',
                     background: 'linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent-2) 80%)',
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
                     backgroundClip: 'text',
-                    lineHeight: 1.15,
+                    lineHeight: 1.1,
                     textAlign: 'center',
                 }}>
-                    Every service, at your fingertips.
+                    Now Your neighborhood<br />is connected
                 </h1>
 
                 {/* short subtitle */}

@@ -147,7 +147,7 @@
         color: var(--color-text);
         transition: background-color 0.3s var(--ease-out-expo), color 0.3s var(--ease-out-expo);
         line-height: 1.55;
-        font-size: 14px;
+        font-size: 13px;
         letter-spacing: -0.011em;
     }
 
