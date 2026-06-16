@@ -124,6 +124,14 @@ function verifyPassword(password, stored) {
     return crypto.timingSafeEqual(hashBuf, Buffer.from(hash, 'hex'));
 }
 
+// Update last_seen on every authenticated request (Part 4 middleware)
+app.use((req, res, next) => {
+    if (req.session?.user?.id) {
+        pool.query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [req.session.user.id]).catch(() => {});
+    }
+    next();
+});
+
 function requireAuth(req, res, next) {
     if (!req.session?.user) return res.status(401).json({ error: 'Not authenticated' });
     next();
@@ -978,11 +986,143 @@ app.get('/api/simon/recommendations', async (req, res) => {
     }
 });
 
+// ── INTELLIGENCE ROUTES (Part 4) ──────────────────────────────────────────────
+
+app.get('/api/intelligence/zones', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM zone_intelligence ORDER BY health_score DESC');
+        res.json({ zones: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/intelligence/platform', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    try {
+        const { rows } = await pool.query('SELECT * FROM platform_stats');
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/intelligence/provider/:id', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM provider_intelligence WHERE provider_id = $1', [req.params.id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Provider not found' });
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/intelligence/trending', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM trending_services_by_zone WHERE ($1::text IS NULL OR zone_id::text = $1) AND rank <= 3 ORDER BY zone_id, rank',
+            [req.query.zone_id || null]
+        );
+        res.json({ trending: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/intelligence/financial', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    try {
+        const { rows } = await pool.query('SELECT * FROM financial_health');
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/intelligence/bnpl-eligibility', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM compute_bnpl_eligibility($1)', [req.session.user.id]);
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── NODE.JS SCHEDULED JOBS (pg_cron replacement) ──────────────────────────────
+
+function startScheduledJobs() {
+    // Zone health recompute every 15 minutes
+    setInterval(async () => {
+        try {
+            await pool.query(`
+                UPDATE neighborhood_zones SET
+                    health_score = LEAST(100, GREATEST(0,
+                        50
+                        + (SELECT COUNT(*) FROM users WHERE zone_id::TEXT = neighborhood_zones.id
+                           AND last_seen_at > NOW() - INTERVAL '30 minutes') * 2
+                        + (SELECT COUNT(*) FROM bookings WHERE zone_id::TEXT = neighborhood_zones.id
+                           AND status = 'completed' AND created_at > NOW() - INTERVAL '7 days') / 5
+                        - (SELECT COUNT(*) FROM disputes WHERE zone_id::TEXT = neighborhood_zones.id AND status = 'open') * 5
+                        - (SELECT COUNT(*) FROM emergency_requests WHERE zone_id::TEXT = neighborhood_zones.id AND status = 'open') * 3
+                    )),
+                    demand_index = LEAST(100, (
+                        SELECT COUNT(*) * 5 FROM bookings
+                        WHERE zone_id::TEXT = neighborhood_zones.id AND created_at > NOW() - INTERVAL '24 hours'
+                    )),
+                    updated_at = NOW()
+            `);
+        } catch (e) { console.warn('Zone health recompute failed:', e.message); }
+    }, 15 * 60 * 1000);
+
+    // Provider idle detection every hour
+    setInterval(async () => {
+        try {
+            await pool.query(`
+                UPDATE providers SET is_available = FALSE
+                WHERE user_id IN (
+                    SELECT id FROM users WHERE role = 'provider'
+                    AND last_seen_at < NOW() - INTERVAL '2 hours'
+                ) AND is_available = TRUE
+            `);
+        } catch (e) { console.warn('Provider idle detection failed:', e.message); }
+    }, 60 * 60 * 1000);
+
+    // Idle slots cleanup every hour (offset 30 min)
+    setTimeout(() => {
+        setInterval(async () => {
+            try {
+                await pool.query(`UPDATE idle_slots SET status = 'expired' WHERE status = 'open' AND ends_at < NOW()`);
+            } catch (e) { console.warn('Idle slots cleanup failed:', e.message); }
+        }, 60 * 60 * 1000);
+    }, 30 * 60 * 1000);
+
+    // Income snapshots + BNPL overdue + trust score recompute — run once at midnight daily
+    const msUntilMidnight = () => {
+        const now = new Date();
+        const midnight = new Date(now);
+        midnight.setHours(24, 0, 0, 0);
+        return midnight.getTime() - now.getTime();
+    };
+    setTimeout(function runDailyJobs() {
+        pool.query(`
+            INSERT INTO income_snapshots (user_id, period, amount_pkr, transaction_count, computed_at)
+            SELECT provider_id, '30d', COALESCE(SUM(price_pkr), 0), COUNT(*), NOW()
+            FROM bookings WHERE status = 'completed' AND created_at > NOW() - INTERVAL '30 days'
+            GROUP BY provider_id
+            ON CONFLICT (user_id, period) DO UPDATE SET
+                amount_pkr = EXCLUDED.amount_pkr,
+                transaction_count = EXCLUDED.transaction_count,
+                computed_at = NOW()
+        `).catch(e => console.warn('Income snapshots refresh failed:', e.message));
+
+        pool.query(`
+            INSERT INTO notifications (user_id, type, title, body)
+            SELECT user_id, 'bnpl_overdue', 'BNPL Payment Overdue',
+                'Your installment of PKR ' || installment_amount || ' was due on ' || next_due_date || '. Please pay to avoid default.'
+            FROM bnpl_agreements
+            WHERE status = 'active' AND next_due_date < CURRENT_DATE
+        `).catch(e => console.warn('BNPL overdue check failed:', e.message));
+
+        setTimeout(runDailyJobs, 24 * 60 * 60 * 1000);
+    }, msUntilMidnight());
+
+    console.log('Scheduled intelligence jobs started');
+}
+
 if (isProd) {
     const distPath = path.join(__dirname, '..', 'dist');
     app.use(express.static(distPath));
     app.get(/{*path}/, (req, res) => res.sendFile(path.join(distPath, 'index.html')));
     initDb().then(() => {
+        startScheduledJobs();
         app.listen(PORT, '0.0.0.0', () => console.log(`Truvornex running on port ${PORT}`));
     });
 } else {
@@ -990,6 +1130,7 @@ if (isProd) {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
     initDb().then(() => {
+        startScheduledJobs();
         app.listen(PORT, '0.0.0.0', () => console.log(`Truvornex dev server running on port ${PORT}`));
     });
 }

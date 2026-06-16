@@ -1,0 +1,512 @@
+# TRUVORNEX — SELF-COMPUTING INTELLIGENCE SYSTEM
+# Pure PostgreSQL. No AI. No external APIs. System computes itself.
+# Add everything below to the database. No frontend changes. No server changes.
+
+---
+
+## RULE
+Do not touch any frontend file, server route, or existing table structure.
+Only add: triggers, functions, views, materialized views, indexes, and pg_cron jobs.
+Every function must be idempotent — safe to run multiple times.
+
+---
+
+## PART 1 — TRIGGERS (fire automatically on every action)
+
+### 1.1 — Booking completed → recompute trust score + award loyalty + update skill
+```sql
+CREATE OR REPLACE FUNCTION on_booking_completed() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'completed' AND OLD.status != 'completed' THEN
+        PERFORM recompute_trust_score(NEW.provider_id);
+        INSERT INTO loyalty_ledger (user_id, coins, reason, reference_type, reference_id)
+        VALUES (NEW.customer_id, FLOOR(COALESCE(NEW.price_pkr, 0) * 0.05), 'booking_completion', 'booking', NEW.id)
+        ON CONFLICT DO NOTHING;
+        INSERT INTO skill_verifications (provider_id, category, verified_count, last_active_at)
+        VALUES (NEW.provider_id, NEW.service_name, 1, NOW())
+        ON CONFLICT (provider_id, category) DO UPDATE SET
+            verified_count = skill_verifications.verified_count + 1,
+            last_active_at = NOW(), updated_at = NOW();
+        INSERT INTO provider_metrics (provider_id, period, total_bookings, completed_bookings, total_earnings)
+        VALUES (NEW.provider_id, '30d', 1, 1, COALESCE(NEW.price_pkr, 0))
+        ON CONFLICT (provider_id, period) DO UPDATE SET
+            total_bookings = provider_metrics.total_bookings + 1,
+            completed_bookings = provider_metrics.completed_bookings + 1,
+            total_earnings = provider_metrics.total_earnings + COALESCE(NEW.price_pkr, 0),
+            updated_at = NOW();
+        UPDATE provider_trust_scores SET dispute_free_streak = dispute_free_streak + 1
+        WHERE provider_id = NEW.provider_id;
+        INSERT INTO income_snapshots (user_id, period, amount_pkr, transaction_count)
+        VALUES (NEW.provider_id, '30d', COALESCE(NEW.price_pkr, 0), 1)
+        ON CONFLICT (user_id, period) DO UPDATE SET
+            amount_pkr = income_snapshots.amount_pkr + COALESCE(NEW.price_pkr, 0),
+            transaction_count = income_snapshots.transaction_count + 1,
+            computed_at = NOW();
+    END IF;
+    IF NEW.status = 'cancelled' AND OLD.status != 'cancelled' THEN
+        PERFORM recompute_trust_score(NEW.provider_id);
+        UPDATE provider_metrics SET cancelled_bookings = cancelled_bookings + 1, updated_at = NOW()
+        WHERE provider_id = NEW.provider_id AND period = '30d';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_booking_completed ON bookings;
+CREATE TRIGGER trg_booking_completed
+    AFTER UPDATE ON bookings
+    FOR EACH ROW EXECUTE FUNCTION on_booking_completed();
+```
+
+### 1.2 — Review inserted → update avg rating + recompute trust
+```sql
+CREATE OR REPLACE FUNCTION on_review_inserted() RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE providers SET
+        avg_rating = (SELECT AVG(rating) FROM reviews WHERE provider_id = NEW.provider_id),
+        total_reviews = (SELECT COUNT(*) FROM reviews WHERE provider_id = NEW.provider_id)
+    WHERE user_id = NEW.provider_id;
+    PERFORM recompute_trust_score(NEW.provider_id);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_review_inserted ON reviews;
+CREATE TRIGGER trg_review_inserted
+    AFTER INSERT ON reviews
+    FOR EACH ROW EXECUTE FUNCTION on_review_inserted();
+```
+
+### 1.3 — Vouch inserted → update vouches count + recompute trust
+```sql
+CREATE OR REPLACE FUNCTION on_vouch_inserted() RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO provider_trust_scores (provider_id, score, tier, vouches_count)
+    VALUES (NEW.provider_id, 0, 'new', 1)
+    ON CONFLICT (provider_id) DO UPDATE SET
+        vouches_count = (SELECT COUNT(*) FROM provider_vouches WHERE provider_id = NEW.provider_id),
+        last_computed_at = NOW();
+    PERFORM recompute_trust_score(NEW.provider_id);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_vouch_inserted ON provider_vouches;
+CREATE TRIGGER trg_vouch_inserted
+    AFTER INSERT ON provider_vouches
+    FOR EACH ROW EXECUTE FUNCTION on_vouch_inserted();
+```
+
+### 1.4 — Dispute opened → reset provider dispute-free streak
+```sql
+CREATE OR REPLACE FUNCTION on_dispute_opened() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'open' THEN
+        UPDATE provider_trust_scores SET dispute_free_streak = 0
+        WHERE provider_id = NEW.against_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_dispute_opened ON disputes;
+CREATE TRIGGER trg_dispute_opened
+    AFTER INSERT ON disputes
+    FOR EACH ROW EXECUTE FUNCTION on_dispute_opened();
+```
+
+### 1.5 — Committee contribution → track rounds + check payout eligibility
+```sql
+CREATE OR REPLACE FUNCTION on_committee_contribution() RETURNS TRIGGER AS $$
+DECLARE
+    v_total_members INT;
+    v_total_contributed INT;
+    v_committee committees%ROWTYPE;
+BEGIN
+    UPDATE committee_members SET contributed_rounds = contributed_rounds + 1
+    WHERE committee_id = NEW.committee_id AND user_id = NEW.member_id;
+    SELECT * INTO v_committee FROM committees WHERE id = NEW.committee_id;
+    SELECT COUNT(*) INTO v_total_members FROM committee_members WHERE committee_id = NEW.committee_id;
+    SELECT COUNT(*) INTO v_total_contributed FROM committee_contributions
+        WHERE committee_id = NEW.committee_id AND round_number = NEW.round_number;
+    IF v_total_contributed >= v_total_members THEN
+        UPDATE committees SET
+            current_round = current_round + 1,
+            next_payout_at = CURRENT_DATE + INTERVAL '1 month'
+        WHERE id = NEW.committee_id;
+        UPDATE committee_members SET has_received_payout = TRUE
+        WHERE committee_id = NEW.committee_id
+          AND payout_position = v_committee.current_round + 1;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_committee_contribution ON committee_contributions;
+CREATE TRIGGER trg_committee_contribution
+    AFTER INSERT ON committee_contributions
+    FOR EACH ROW EXECUTE FUNCTION on_committee_contribution();
+```
+
+### 1.6 — User seen → update zone active count
+```sql
+CREATE OR REPLACE FUNCTION on_user_seen() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.last_seen_at IS DISTINCT FROM OLD.last_seen_at AND NEW.zone_id IS NOT NULL THEN
+        UPDATE neighborhood_zones SET
+            active_member_count = (
+                SELECT COUNT(*) FROM users
+                WHERE zone_id = NEW.zone_id
+                AND last_seen_at > NOW() - INTERVAL '30 minutes'
+            )
+        WHERE id = NEW.zone_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_user_seen ON users;
+CREATE TRIGGER trg_user_seen
+    AFTER UPDATE OF last_seen_at ON users
+    FOR EACH ROW EXECUTE FUNCTION on_user_seen();
+```
+
+### 1.7 — New booking → update zone demand index
+```sql
+CREATE OR REPLACE FUNCTION on_booking_inserted() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.zone_id IS NOT NULL THEN
+        UPDATE neighborhood_zones SET
+            demand_index = LEAST(100, (
+                SELECT COUNT(*) * 5 FROM bookings
+                WHERE zone_id = NEW.zone_id
+                AND created_at > NOW() - INTERVAL '24 hours'
+            )),
+            updated_at = NOW()
+        WHERE id = NEW.zone_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_booking_inserted ON bookings;
+CREATE TRIGGER trg_booking_inserted
+    AFTER INSERT ON bookings
+    FOR EACH ROW EXECUTE FUNCTION on_booking_inserted();
+```
+
+### 1.8 — New user → auto-create wallet
+```sql
+CREATE OR REPLACE FUNCTION on_user_created() RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO wallets (user_id, balance, currency)
+    VALUES (NEW.id, 0, 'PKR')
+    ON CONFLICT (user_id, currency) DO NOTHING;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_user_created ON users;
+CREATE TRIGGER trg_user_created
+    AFTER INSERT ON users
+    FOR EACH ROW EXECUTE FUNCTION on_user_created();
+```
+
+---
+
+## PART 2 — COMPUTED VIEWS
+
+### 2.1 — Platform stats (always live)
+```sql
+CREATE OR REPLACE VIEW platform_stats AS
+SELECT
+    (SELECT COUNT(*) FROM users) AS total_users,
+    (SELECT COUNT(*) FROM users WHERE role = 'provider') AS total_providers,
+    (SELECT COUNT(*) FROM users WHERE role = 'customer') AS total_customers,
+    (SELECT COUNT(*) FROM users WHERE last_seen_at > NOW() - INTERVAL '30 minutes') AS active_users_now,
+    (SELECT COUNT(*) FROM bookings) AS total_bookings,
+    (SELECT COUNT(*) FROM bookings WHERE status = 'completed') AS completed_bookings,
+    (SELECT COUNT(*) FROM bookings WHERE status = 'pending') AS pending_bookings,
+    (SELECT COUNT(*) FROM bookings WHERE DATE(created_at) = CURRENT_DATE) AS bookings_today,
+    (SELECT COALESCE(SUM(balance), 0) FROM wallets) AS total_wallet_balance_pkr,
+    (SELECT COUNT(*) FROM disputes WHERE status = 'open') AS open_disputes,
+    (SELECT COUNT(*) FROM committees WHERE status = 'active') AS active_committees,
+    (SELECT COUNT(*) FROM blood_donors WHERE available = TRUE) AS available_blood_donors,
+    (SELECT COUNT(*) FROM marketplace_listings WHERE status = 'active') AS active_marketplace_listings,
+    (SELECT COUNT(*) FROM provider_trust_scores WHERE tier = 'champion') AS champion_providers,
+    (SELECT COUNT(*) FROM provider_trust_scores WHERE tier = 'trusted') AS trusted_providers,
+    (SELECT COUNT(*) FROM provider_trust_scores WHERE tier = 'verified') AS verified_providers,
+    (SELECT COUNT(*) FROM provider_trust_scores WHERE tier = 'rising') AS rising_providers,
+    NOW() AS computed_at;
+```
+
+### 2.2 — Zone intelligence (per zone, live)
+```sql
+CREATE OR REPLACE VIEW zone_intelligence AS
+SELECT
+    nz.id, nz.name, nz.city, nz.country,
+    nz.health_score, nz.demand_index, nz.active_member_count,
+    (SELECT COUNT(*) FROM users WHERE zone_id = nz.id AND role = 'provider') AS total_providers,
+    (SELECT COUNT(*) FROM users WHERE zone_id = nz.id AND role = 'provider'
+        AND last_seen_at > NOW() - INTERVAL '30 minutes') AS active_providers_now,
+    (SELECT COUNT(*) FROM bookings WHERE zone_id = nz.id AND status = 'pending') AS pending_bookings,
+    (SELECT COUNT(*) FROM bookings WHERE zone_id = nz.id AND status = 'completed'
+        AND created_at > NOW() - INTERVAL '7 days') AS completed_bookings_7d,
+    (SELECT COUNT(*) FROM emergency_requests WHERE zone_id = nz.id AND status = 'open') AS open_emergencies,
+    (SELECT COUNT(*) FROM blood_donors WHERE zone_id = nz.id AND available = TRUE) AS blood_donors_available,
+    (SELECT COUNT(*) FROM committees WHERE zone_id = nz.id AND status = 'active') AS active_committees,
+    (SELECT COUNT(*) FROM marketplace_listings WHERE zone_id = nz.id AND status = 'active') AS active_listings,
+    CASE
+        WHEN (SELECT COUNT(*) FROM users WHERE zone_id = nz.id AND role = 'provider'
+            AND last_seen_at > NOW() - INTERVAL '30 minutes') = 0 THEN 'no_supply'
+        WHEN (SELECT COUNT(*) FROM bookings WHERE zone_id = nz.id AND status = 'pending') >
+             (SELECT COUNT(*) FROM users WHERE zone_id = nz.id AND role = 'provider'
+                AND last_seen_at > NOW() - INTERVAL '30 minutes') * 2 THEN 'high_demand'
+        WHEN (SELECT COUNT(*) FROM bookings WHERE zone_id = nz.id AND status = 'pending') = 0 THEN 'low_demand'
+        ELSE 'balanced'
+    END AS supply_demand_status,
+    nz.updated_at
+FROM neighborhood_zones nz;
+```
+
+### 2.3 — Provider intelligence (per provider, live)
+```sql
+CREATE OR REPLACE VIEW provider_intelligence AS
+SELECT
+    u.id AS provider_id,
+    u.full_name, u.city,
+    u.last_seen_at > NOW() - INTERVAL '30 minutes' AS is_online,
+    pts.score AS trust_score,
+    pts.tier, pts.completion_rate, pts.avg_rating,
+    pts.total_completed, pts.dispute_free_streak, pts.vouches_count,
+    (SELECT COUNT(*) FROM skill_verifications WHERE provider_id = u.id) AS verified_skill_categories,
+    (SELECT COALESCE(SUM(amount_pkr), 0) FROM income_snapshots WHERE user_id = u.id AND period = '30d') AS earnings_30d,
+    (SELECT COUNT(*) FROM bookings WHERE provider_id = u.id AND status = 'pending') AS pending_jobs,
+    (SELECT COUNT(*) FROM bookings WHERE provider_id = u.id AND status = 'completed'
+        AND created_at > NOW() - INTERVAL '30 days') AS completed_jobs_30d
+FROM users u
+LEFT JOIN provider_trust_scores pts ON pts.provider_id = u.id
+WHERE u.role = 'provider';
+```
+
+### 2.4 — Trending services per zone
+```sql
+CREATE OR REPLACE VIEW trending_services_by_zone AS
+SELECT
+    zone_id, service_name,
+    COUNT(*) AS booking_count,
+    AVG(price_pkr) AS avg_price,
+    COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
+    RANK() OVER (PARTITION BY zone_id ORDER BY COUNT(*) DESC) AS rank
+FROM bookings
+WHERE created_at > NOW() - INTERVAL '7 days' AND zone_id IS NOT NULL
+GROUP BY zone_id, service_name;
+```
+
+### 2.5 — Financial health (platform-wide)
+```sql
+CREATE OR REPLACE VIEW financial_health AS
+SELECT
+    (SELECT COALESCE(SUM(balance), 0) FROM wallets) AS total_wallet_balance,
+    (SELECT COUNT(*) FROM wallets WHERE balance > 0) AS wallets_with_balance,
+    (SELECT COALESCE(SUM(total_amount - (paid_installments * installment_amount)), 0)
+        FROM bnpl_agreements WHERE status = 'active') AS total_bnpl_exposure,
+    (SELECT COUNT(*) FROM bnpl_agreements WHERE status = 'active'
+        AND next_due_date < CURRENT_DATE) AS overdue_bnpl_count,
+    (SELECT COUNT(*) FROM bnpl_agreements WHERE status = 'defaulted') AS defaulted_bnpl_count,
+    (SELECT COALESCE(SUM(coins) FILTER (WHERE coins > 0), 0) FROM loyalty_ledger) AS coins_issued,
+    (SELECT COALESCE(SUM(coins), 0) FROM loyalty_ledger) AS coins_outstanding,
+    NOW() AS computed_at;
+```
+
+### 2.6 — BNPL eligibility function
+```sql
+CREATE OR REPLACE FUNCTION compute_bnpl_eligibility(p_user_id UUID)
+RETURNS TABLE(eligible BOOLEAN, limit_pkr NUMERIC, tier TEXT, reason TEXT) AS $$
+DECLARE
+    v_trust_tier TEXT;
+    v_active_bnpl INT;
+    v_defaulted INT;
+BEGIN
+    SELECT pts.tier INTO v_trust_tier FROM provider_trust_scores pts WHERE provider_id = p_user_id;
+    SELECT COUNT(*) INTO v_active_bnpl FROM bnpl_agreements WHERE user_id = p_user_id AND status = 'active';
+    SELECT COUNT(*) INTO v_defaulted FROM bnpl_agreements WHERE user_id = p_user_id AND status = 'defaulted';
+    IF v_defaulted > 0 THEN
+        RETURN QUERY SELECT FALSE, 0::NUMERIC, 'blocked'::TEXT, 'Previous BNPL default on record'::TEXT; RETURN;
+    END IF;
+    IF v_active_bnpl >= 2 THEN
+        RETURN QUERY SELECT FALSE, 0::NUMERIC, 'maxed'::TEXT, 'Maximum active BNPL agreements reached'::TEXT; RETURN;
+    END IF;
+    CASE v_trust_tier
+        WHEN 'champion' THEN RETURN QUERY SELECT TRUE, 5000::NUMERIC, 'champion'::TEXT, 'Champion tier — maximum BNPL limit'::TEXT;
+        WHEN 'trusted'  THEN RETURN QUERY SELECT TRUE, 3000::NUMERIC, 'trusted'::TEXT,  'Trusted tier — standard BNPL limit'::TEXT;
+        WHEN 'verified' THEN RETURN QUERY SELECT TRUE, 1500::NUMERIC, 'verified'::TEXT, 'Verified tier — basic BNPL limit'::TEXT;
+        WHEN 'rising'   THEN RETURN QUERY SELECT TRUE, 500::NUMERIC,  'rising'::TEXT,   'Rising tier — starter BNPL limit'::TEXT;
+        ELSE                 RETURN QUERY SELECT FALSE, 0::NUMERIC,   'new'::TEXT,      'Complete more jobs to unlock BNPL'::TEXT;
+    END CASE;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+---
+
+## PART 3 — pg_cron SCHEDULED JOBS
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- Zone health every 15 minutes
+SELECT cron.schedule('zone-health-recompute', '*/15 * * * *', $$
+    UPDATE neighborhood_zones SET
+        health_score = LEAST(100, GREATEST(0,
+            50
+            + (SELECT COUNT(*) FROM users WHERE zone_id = neighborhood_zones.id
+               AND last_seen_at > NOW() - INTERVAL '30 minutes') * 2
+            + (SELECT COUNT(*) FROM bookings WHERE zone_id = neighborhood_zones.id
+               AND status = 'completed' AND created_at > NOW() - INTERVAL '7 days') / 5
+            - (SELECT COUNT(*) FROM disputes WHERE zone_id = neighborhood_zones.id AND status = 'open') * 5
+            - (SELECT COUNT(*) FROM emergency_requests WHERE zone_id = neighborhood_zones.id AND status = 'open') * 3
+        )),
+        demand_index = LEAST(100, (
+            SELECT COUNT(*) * 5 FROM bookings
+            WHERE zone_id = neighborhood_zones.id AND created_at > NOW() - INTERVAL '24 hours'
+        )),
+        updated_at = NOW();
+$$);
+
+-- Provider idle detection every hour
+SELECT cron.schedule('provider-idle-detection', '0 * * * *', $$
+    UPDATE providers SET is_available = FALSE
+    WHERE user_id IN (
+        SELECT id FROM users WHERE role = 'provider'
+        AND last_seen_at < NOW() - INTERVAL '2 hours'
+    ) AND is_available = TRUE;
+$$);
+
+-- BNPL overdue notifications daily at 9am
+SELECT cron.schedule('bnpl-overdue-check', '0 9 * * *', $$
+    INSERT INTO notifications (user_id, type, title, body)
+    SELECT user_id, 'bnpl_overdue', 'BNPL Payment Overdue',
+        'Your installment of PKR ' || installment_amount || ' was due on ' || next_due_date || '. Please pay to avoid default.'
+    FROM bnpl_agreements
+    WHERE status = 'active' AND next_due_date < CURRENT_DATE;
+$$);
+
+-- Income snapshots refresh daily at midnight
+SELECT cron.schedule('income-snapshots-refresh', '0 0 * * *', $$
+    INSERT INTO income_snapshots (user_id, period, amount_pkr, transaction_count, computed_at)
+    SELECT provider_id, '30d', COALESCE(SUM(price_pkr), 0), COUNT(*), NOW()
+    FROM bookings WHERE status = 'completed' AND created_at > NOW() - INTERVAL '30 days'
+    GROUP BY provider_id
+    ON CONFLICT (user_id, period) DO UPDATE SET
+        amount_pkr = EXCLUDED.amount_pkr,
+        transaction_count = EXCLUDED.transaction_count,
+        computed_at = NOW();
+$$);
+
+-- Expired idle slots cleanup every hour
+SELECT cron.schedule('idle-slots-cleanup', '30 * * * *', $$
+    UPDATE idle_slots SET status = 'expired' WHERE status = 'open' AND ends_at < NOW();
+$$);
+
+-- Trust score full recompute weekly Sunday 3am
+SELECT cron.schedule('trust-score-weekly-recompute', '0 3 * * 0', $$
+    SELECT recompute_trust_score(id) FROM users WHERE role = 'provider';
+$$);
+
+-- Committee defaulter notifications monthly
+SELECT cron.schedule('committee-defaulter-check', '0 10 1 * *', $$
+    INSERT INTO notifications (user_id, type, title, body)
+    SELECT cm.user_id, 'committee_missed', 'Committee Contribution Due',
+        'Your committee contribution is due. Missing payments affect your trust score.'
+    FROM committee_members cm
+    JOIN committees c ON c.id = cm.committee_id
+    WHERE c.status = 'active' AND cm.contributed_rounds < c.current_round;
+$$);
+```
+
+---
+
+## PART 4 — ADD TO server/index.js
+
+Add these 6 routes and 1 middleware:
+
+```js
+// Update last_seen on every authenticated request
+app.use(async (req, res, next) => {
+    if (req.session?.user?.id) {
+        pool.query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [req.session.user.id]).catch(() => {});
+    }
+    next();
+});
+
+// Zone intelligence
+app.get('/api/intelligence/zones', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM zone_intelligence ORDER BY health_score DESC');
+        res.json({ zones: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Platform stats (admin only)
+app.get('/api/intelligence/platform', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    try {
+        const { rows } = await pool.query('SELECT * FROM platform_stats');
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Provider intelligence (public)
+app.get('/api/intelligence/provider/:id', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM provider_intelligence WHERE provider_id = $1', [req.params.id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Provider not found' });
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Trending services
+app.get('/api/intelligence/trending', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM trending_services_by_zone WHERE ($1::text IS NULL OR zone_id::text = $1) AND rank <= 3 ORDER BY zone_id, rank',
+            [req.query.zone_id || null]
+        );
+        res.json({ trending: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Financial health (admin only)
+app.get('/api/intelligence/financial', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    try {
+        const { rows } = await pool.query('SELECT * FROM financial_health');
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// BNPL eligibility
+app.get('/api/intelligence/bnpl-eligibility', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM compute_bnpl_eligibility($1)', [req.session.user.id]);
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+```
+
+---
+
+## WHAT THE SYSTEM NOW KNOWS AUTOMATICALLY — ZERO AI
+
+- Active providers right now per zone
+- Trust tier distribution (champion/trusted/verified/rising/new) — live
+- Supply vs demand status per zone — computed every request
+- Trending services last 7 days per zone — live
+- Every provider's earnings, streak, skill count — auto-updated on booking complete
+- Platform wallet balance, BNPL exposure, loyalty coins — live views
+- Overdue BNPL — notified automatically at 9am daily
+- Idle providers — marked automatically after 2 hours
+- Zone health score — recomputed every 15 minutes by pg_cron
+- Committee defaulters — notified automatically monthly
+- New user wallet — created automatically on signup via trigger
