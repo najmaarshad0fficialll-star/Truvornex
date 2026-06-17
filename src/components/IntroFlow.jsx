@@ -36,13 +36,13 @@ const SLIDE_DURATION = 5200; // ms per slide before auto-advance
 // Derives particle target positions from the favicon SVG shape:
 // three horizontal lines + a filled circle (32×32 viewBox)
 function generateParticles(W, H) {
-    const scale = Math.min(W, H) * 0.38 / 32;
+    const scale = Math.min(W, H) * 0.85 / 32;
     const ox = W / 2;     // logo center x on screen
-    const oy = H * 0.44;  // logo center y on screen (upper-center)
+    const oy = H * 0.42;  // logo center y on screen
     const pts = [];
 
-    // Sample spacing in logo-space units
-    const STEP = 0.55;
+    // Sample spacing in logo-space units (tighter = more particles)
+    const STEP = 0.28;
 
     // Line 1: y=10, x 8→24
     for (let x = 8; x <= 24; x += STEP)
