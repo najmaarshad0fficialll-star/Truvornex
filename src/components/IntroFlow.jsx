@@ -37,9 +37,14 @@ const SLIDE_DURATION = 5200; // ms per slide before auto-advance
 // Each line is a thick filled band; the circle is a solid filled disk.
 // Result: a bold particle sculpture, not a wireframe outline.
 function generateParticles(W, H) {
-    const scale    = Math.min(W, H) * 0.88 / 32;
-    const ox       = W * 0.56;   // slightly right of center
-    const oy       = H * 0.42;
+    // Responsive scale: fill ~50-60% of the narrower axis
+    const isMobile = W < 640;
+    const scale    = (isMobile ? W * 0.82 : Math.min(W * 0.55, H * 0.75)) / 32;
+
+    // Left-corner anchor: logo left edge sits ~5% from screen left
+    // Logo x range: 8→28 in logo coords; leftmost = ox + (8-16)*scale
+    const ox = W * 0.05 + (16 - 8) * scale;       // left-anchored
+    const oy = isMobile ? H * 0.30 : H * 0.38;    // upper area, responsive
     const STEP     = 0.34;       // grid spacing in logo-space units
     const HALF_T   = 1.5;        // half-thickness of each line band
 
@@ -109,6 +114,7 @@ function LogoParticles() {
             particles: [],
             mouseX: -9999,
             mouseY: -9999,
+            ripples: [],   // [ { x, y, r, maxR, str } ]
             raf: null,
         };
 
@@ -141,10 +147,25 @@ function LogoParticles() {
             }
         };
         const onTouchEnd = () => { state.mouseX = -9999; state.mouseY = -9999; };
+
+        // Ripple on click or tap — radiating wave of repulsion
+        const spawnRipple = (x, y) => {
+            const maxR = Math.min(canvas.width, canvas.height) * 0.55;
+            state.ripples.push({ x, y, r: 0, maxR, str: 9 });
+            // Cap to 4 simultaneous ripples to stay performant
+            if (state.ripples.length > 4) state.ripples.shift();
+        };
+        const onClick      = e => spawnRipple(e.clientX, e.clientY);
+        const onTouchStart = e => {
+            if (e.touches.length) spawnRipple(e.touches[0].clientX, e.touches[0].clientY);
+        };
+
         window.addEventListener('mousemove',  onMouseMove);
         window.addEventListener('mouseleave', onMouseLeave);
         window.addEventListener('touchmove',  onTouchMove,  { passive: true });
         window.addEventListener('touchend',   onTouchEnd);
+        window.addEventListener('click',      onClick);
+        window.addEventListener('touchstart', onTouchStart, { passive: true });
 
         // Physics constants
         const STIFFNESS     = 0.038;  // spring return speed
@@ -152,31 +173,57 @@ function LogoParticles() {
         const REPEL_RADIUS  = 110;    // px — cursor influence radius
         const REPEL_STRENGTH = 5.5;   // repulsion force
 
-        // 60 FPS animation loop with breathing pulse
+        // Wave-front band width (px) — particles inside this get pushed
+        const WAVE_BAND = 38;
+        const WAVE_SPEED = 7; // px per frame
+
+        // 60 FPS animation loop — breathing + mouse repulsion + ripple wave
         const animate = (now) => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Advance and expire ripples
+            for (const rp of state.ripples) rp.r += WAVE_SPEED;
+            state.ripples = state.ripples.filter(rp => rp.r < rp.maxR);
 
             for (const p of state.particles) {
                 // Spring force back toward target
                 p.vx = (p.vx + (p.tx - p.x) * STIFFNESS) * DAMPING;
                 p.vy = (p.vy + (p.ty - p.y) * STIFFNESS) * DAMPING;
 
-                // Mouse repulsion
-                const dx   = p.x - state.mouseX;
-                const dy   = p.y - state.mouseY;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < REPEL_RADIUS && dist > 0.5) {
-                    const f = Math.pow(1 - dist / REPEL_RADIUS, 2) * REPEL_STRENGTH;
-                    p.vx += (dx / dist) * f;
-                    p.vy += (dy / dist) * f;
+                // Continuous mouse/touch repulsion
+                const mdx  = p.x - state.mouseX;
+                const mdy  = p.y - state.mouseY;
+                const mdist = Math.sqrt(mdx * mdx + mdy * mdy);
+                if (mdist < REPEL_RADIUS && mdist > 0.5) {
+                    const f = Math.pow(1 - mdist / REPEL_RADIUS, 2) * REPEL_STRENGTH;
+                    p.vx += (mdx / mdist) * f;
+                    p.vy += (mdy / mdist) * f;
+                }
+
+                // Ripple wave-front force — particles near the expanding ring get blasted
+                for (const rp of state.ripples) {
+                    const rdx  = p.x - rp.x;
+                    const rdy  = p.y - rp.y;
+                    const rdist = Math.sqrt(rdx * rdx + rdy * rdy);
+                    if (rdist < 1) continue;
+                    const waveDelta = Math.abs(rdist - rp.r);
+                    if (waveDelta < WAVE_BAND) {
+                        // Force peaks at wave front, fades toward edges of band
+                        // Also fades as ripple expands (energy dissipates)
+                        const bandFade   = 1 - waveDelta / WAVE_BAND;
+                        const ageFade    = 1 - rp.r / rp.maxR;
+                        const f = bandFade * bandFade * ageFade * rp.str;
+                        p.vx += (rdx / rdist) * f;
+                        p.vy += (rdy / rdist) * f;
+                    }
                 }
 
                 p.x += p.vx;
                 p.y += p.vy;
 
-                // Ambient breathing — slow sine wave offset per particle phase
-                const pulse   = Math.sin(now * 0.00075 + p.phase) * 0.055;
-                const alpha   = Math.max(0.02, Math.min(0.32, p.baseOpacity + pulse));
+                // Ambient breathing — staggered sine per particle
+                const pulse = Math.sin(now * 0.00075 + p.phase) * 0.055;
+                const alpha = Math.max(0.02, Math.min(0.32, p.baseOpacity + pulse));
 
                 ctx.globalAlpha = alpha;
                 ctx.beginPath();
@@ -196,6 +243,8 @@ function LogoParticles() {
             window.removeEventListener('mouseleave',  onMouseLeave);
             window.removeEventListener('touchmove',   onTouchMove);
             window.removeEventListener('touchend',    onTouchEnd);
+            window.removeEventListener('click',       onClick);
+            window.removeEventListener('touchstart',  onTouchStart);
         };
     }, []);
 
