@@ -1,358 +1,298 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-/* ── items for fast-cut scene ─────────────────────────────────── */
 const CUTS = [
-    { word: 'SERVICES',    sub: 'Book in 60 seconds' },
-    { word: 'TRANSPORT',   sub: 'Rides on demand' },
-    { word: 'COMMITTEE',   sub: 'Community fund' },
-    { word: 'MARKETPLACE', sub: 'Local commerce' },
-    { word: 'BLOOD NETWORK', sub: 'Life, shared' },
+    { word: 'SERVICES',     sub: 'Book in 60 seconds' },
+    { word: 'TRANSPORT',    sub: 'Rides on demand' },
+    { word: 'COMMITTEE',    sub: 'Community fund' },
+    { word: 'MARKETPLACE',  sub: 'Local commerce' },
+    { word: 'BLOOD NETWORK',sub: 'Life, shared' },
     { word: 'TOOL LIBRARY', sub: 'Borrow anything' },
     { word: 'NEIGHBORHOOD', sub: 'One OS for all' },
-    { word: 'SIMON AI',    sub: 'Your intelligent city' },
+    { word: 'SIMON AI',     sub: 'Your intelligent city' },
 ];
 
-/* ── Film grain hook ───────────────────────────────────────────── */
-function useFilmGrain(canvasRef) {
+function useFilmGrain(ref) {
     useEffect(() => {
-        const canvas = canvasRef.current;
+        const canvas = ref.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        let running = true;
-        let raf;
-
-        function resize() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
+        let alive = true, raf;
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
         resize();
         window.addEventListener('resize', resize);
-
-        function draw() {
-            if (!running) return;
+        function tick() {
+            if (!alive) return;
             const { width: w, height: h } = canvas;
             const img = ctx.createImageData(w, h);
             const d = img.data;
             for (let i = 0; i < d.length; i += 4) {
                 const v = (Math.random() * 255) | 0;
                 d[i] = d[i + 1] = d[i + 2] = v;
-                d[i + 3] = (Math.random() * 22) | 0;
+                d[i + 3] = (Math.random() * 20) | 0;
             }
             ctx.putImageData(img, 0, 0);
-            raf = requestAnimationFrame(draw);
+            raf = requestAnimationFrame(tick);
         }
-        draw();
-        return () => {
-            running = false;
-            window.removeEventListener('resize', resize);
-            cancelAnimationFrame(raf);
-        };
+        tick();
+        return () => { alive = false; window.removeEventListener('resize', resize); cancelAnimationFrame(raf); };
     }, []);
 }
 
-/* ── Light sweep component ─────────────────────────────────────── */
-function LightSweep({ trigger, delay = 0 }) {
+function Sweep({ active }) {
     const [go, setGo] = useState(false);
-    useEffect(() => {
-        if (!trigger) return;
-        const t = setTimeout(() => setGo(true), delay);
-        return () => clearTimeout(t);
-    }, [trigger, delay]);
-
+    useEffect(() => { if (active) { const t = setTimeout(() => setGo(true), 50); return () => clearTimeout(t); } }, [active]);
     return (
         <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 6 }}>
             <div style={{
-                position: 'absolute', top: '-20%', bottom: '-20%',
-                width: '30%',
-                left: go ? '115%' : '-30%',
-                transition: go ? 'left 0.9s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
-                background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.055) 40%, rgba(255,255,255,0.11) 50%, rgba(255,255,255,0.055) 60%, transparent 100%)',
+                position: 'absolute', top: '-20%', bottom: '-20%', width: '32%',
+                left: go ? '115%' : '-32%',
+                transition: go ? 'left 1s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
+                background: 'linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.05) 40%,rgba(255,255,255,0.12) 50%,rgba(255,255,255,0.05) 60%,transparent 100%)',
                 transform: 'skewX(-10deg)',
             }} />
         </div>
     );
 }
 
-/* ── Main component ─────────────────────────────────────────────── */
 export default function Onboarding() {
     const navigate = useNavigate();
     const grainRef = useRef(null);
     useFilmGrain(grainRef);
 
-    /* scene state */
-    const [scene, setScene] = useState(0);          // 0=black, 1, 2, 3, 4, 5
-    const [opacity, setOpacity] = useState(0);       // whole screen fade
-    const [sweepA, setSweepA] = useState(false);
-    const [sweepB, setSweepB] = useState(false);
+    const [scene, setScene]     = useState(0);
+    const [env, setEnv]         = useState(0);    // master opacity envelope
+    const [sweepA, setSweepA]   = useState(false);
+    const [sweepB, setSweepB]   = useState(false);
 
-    /* scene 1 */
-    const [s1show, setS1show] = useState(false);
-
-    /* scene 2 */
-    const [s2lines, setS2lines] = useState([false, false, false]);
-
-    /* scene 3 */
-    const [s3word, setS3word] = useState(false);
-    const [s3exit, setS3exit] = useState(false);
-    const [s3tag, setS3tag] = useState(false);
-
-    /* scene 4 */
-    const [cutIdx, setCutIdx] = useState(0);
-    const [cutVis, setCutVis] = useState(false);
-
-    /* scene 5 */
-    const [s5a, setS5a] = useState(false);
-    const [s5b, setS5b] = useState(false);
-    const [s5c, setS5c] = useState(false);
-    const [s5btns, setS5btns] = useState(false);
+    // scene 1
+    const [s1, setS1] = useState(false);
+    // scene 2
+    const [s2, setS2] = useState([false, false, false]);
+    // scene 3
+    const [s3w, setS3w]   = useState(false);
+    const [s3x, setS3x]   = useState(false);
+    const [s3t, setS3t]   = useState(false);
+    // scene 4
+    const [cut, setCut]   = useState(0);
+    const [cutV, setCutV] = useState(false);
+    // scene 5
+    const [s5a, setS5a]   = useState(false);
+    const [s5b, setS5b]   = useState(false);
+    const [s5c, setS5c]   = useState(false);
+    const [s5btn, setS5btn] = useState(false);
 
     const [skipVis, setSkipVis] = useState(false);
 
     const done = useCallback((dest) => {
-        setOpacity(0);
+        setEnv(0);
         localStorage.setItem('truvornex_intro_seen', '1');
-        setTimeout(() => navigate(dest, { replace: true }), 600);
+        setTimeout(() => navigate(dest, { replace: true }), 550);
     }, [navigate]);
 
-    const skipToFinal = useCallback(() => {
-        setSkipVis(false);
-        setScene(5);
-        setOpacity(1);
-        setTimeout(() => { setS5a(true); }, 80);
-        setTimeout(() => { setS5b(true); setSweepB(true); }, 700);
-        setTimeout(() => { setS5c(true); }, 1200);
-        setTimeout(() => { setS5btns(true); }, 1800);
+    const goFinal = useCallback(() => {
+        setSkipVis(false); setEnv(0);
+        setTimeout(() => {
+            setScene(5); setEnv(1); setSweepB(true);
+            setTimeout(() => setS5a(true), 80);
+            setTimeout(() => setS5b(true), 650);
+            setTimeout(() => setS5c(true), 1150);
+            setTimeout(() => setS5btn(true), 1750);
+        }, 350);
     }, []);
 
     useEffect(() => {
         const T = [];
         const t = (fn, ms) => { const id = setTimeout(fn, ms); T.push(id); return id; };
 
-        /* ── Fade in ── */
-        t(() => setOpacity(1), 60);
+        t(() => setEnv(1), 60);
 
-        /* ── SCENE 1 — Studio card (0–2.8s) ── */
-        t(() => { setScene(1); setS1show(true); }, 120);
-        t(() => setS1show(false), 2000);
-        t(() => { setSweepA(true); }, 2100);
-        t(() => setOpacity(0), 2400);
+        // scene 1 — 0–2.8s
+        t(() => { setScene(1); setS1(true); }, 120);
+        t(() => setS1(false), 2000);
+        t(() => setSweepA(true), 2100);
+        t(() => setEnv(0), 2350);
 
-        /* ── SCENE 2 — The problem (3–6s) ── */
-        t(() => { setScene(2); setOpacity(1); setSkipVis(true); }, 2800);
-        t(() => setS2lines(v => [true, v[1], v[2]]), 3000);
-        t(() => setS2lines(v => [v[0], true, v[2]]), 3400);
-        t(() => setS2lines(v => [v[0], v[1], true]), 3800);
-        t(() => { setS2lines([false, false, false]); }, 5600);
-        t(() => setOpacity(0), 5900);
+        // scene 2 — 2.8–6s
+        t(() => { setScene(2); setEnv(1); setSkipVis(true); }, 2800);
+        t(() => setS2([true, false, false]), 3000);
+        t(() => setS2([true, true,  false]), 3420);
+        t(() => setS2([true, true,  true ]), 3840);
+        t(() => setS2([false, false, false]), 5500);
+        t(() => setEnv(0), 5800);
 
-        /* ── SCENE 3 — TRUVORNEX reveal (6.4–9.5s) ── */
-        t(() => { setScene(3); setOpacity(1); }, 6400);
-        t(() => setS3word(true), 6500);
-        t(() => setS3tag(true), 7200);
-        t(() => { setS3exit(true); setS3tag(false); }, 8900);
-        t(() => setOpacity(0), 9300);
+        // scene 3 — 6.3–9.5s
+        t(() => { setScene(3); setEnv(1); }, 6300);
+        t(() => setS3w(true), 6420);
+        t(() => setS3t(true), 7150);
+        t(() => { setS3x(true); setS3t(false); }, 8800);
+        t(() => setEnv(0), 9250);
 
-        /* ── SCENE 4 — Fast cuts (9.8–14.2s) ── */
-        t(() => { setScene(4); setOpacity(1); setCutVis(true); }, 9800);
+        // scene 4 — 9.8–14s
+        t(() => { setScene(4); setEnv(1); setCutV(true); }, 9800);
         CUTS.forEach((_, i) => {
-            t(() => { setCutIdx(i); setCutVis(false); }, 9800 + i * 550);
-            t(() => setCutVis(true), 9900 + i * 550);
+            t(() => { setCut(i); setCutV(false); }, 9800 + i * 530);
+            t(() => setCutV(true), 9920 + i * 530);
         });
-        t(() => setOpacity(0), 14300);
+        t(() => setEnv(0), 14100);
 
-        /* ── SCENE 5 — Final (14.8s+) ── */
-        t(() => { setScene(5); setOpacity(1); setSkipVis(false); }, 14800);
-        t(() => { setS5a(true); setSweepB(true); }, 14900);
-        t(() => setS5b(true), 15600);
-        t(() => setS5c(true), 16200);
-        t(() => setS5btns(true), 17000);
+        // scene 5 — 14.6s+
+        t(() => { setScene(5); setEnv(1); setSweepB(true); setSkipVis(false); }, 14600);
+        t(() => setS5a(true), 14720);
+        t(() => setS5b(true), 15400);
+        t(() => setS5c(true), 15950);
+        t(() => setS5btn(true), 16750);
 
         return () => T.forEach(clearTimeout);
     }, []);
 
     useEffect(() => {
-        const esc = (e) => { if (e.key === 'Escape') skipToFinal(); };
-        window.addEventListener('keydown', esc);
-        return () => window.removeEventListener('keydown', esc);
-    }, [skipToFinal]);
+        const fn = (e) => { if (e.key === 'Escape') goFinal(); };
+        window.addEventListener('keydown', fn);
+        return () => window.removeEventListener('keydown', fn);
+    }, [goFinal]);
 
-    /* ── shared gradient BG ── */
-    const gradientBg = scene === 3
-        ? 'radial-gradient(ellipse 130% 90% at 50% 50%, #181818 0%, #000 60%)'
-        : scene === 5
-            ? 'radial-gradient(ellipse 110% 80% at 50% 40%, #141414 0%, #000 55%)'
-            : '#000';
+    const bg = scene === 3 || scene === 5
+        ? 'radial-gradient(ellipse 130% 90% at 50% 50%,#161616 0%,#000 58%)'
+        : '#000';
+
+    /* shared text style helpers */
+    const gradText = (from = '#fff', to = 'rgba(255,255,255,0.65)') => ({
+        background: `linear-gradient(180deg,${from} 0%,${to} 100%)`,
+        WebkitBackgroundClip: 'text',
+        WebkitTextFillColor: 'transparent',
+        backgroundClip: 'text',
+    });
 
     return (
         <div style={{
             position: 'fixed', inset: 0, zIndex: 99999,
-            background: gradientBg,
-            transition: 'background 1.2s ease',
-            fontFamily: "'Inter', 'SF Pro Display', system-ui, sans-serif",
+            background: bg, transition: 'background 1.2s ease',
+            fontFamily: "'Inter','SF Pro Display',system-ui,sans-serif",
             overflow: 'hidden',
+            /* use dynamic viewport height so browser chrome doesn't overlap */
+            height: '100dvh',
         }}>
-            {/* ── Film grain ── */}
+            {/* grain */}
             <canvas ref={grainRef} style={{
                 position: 'absolute', inset: 0, pointerEvents: 'none',
-                mixBlendMode: 'overlay', opacity: 0.48, zIndex: 30,
+                mixBlendMode: 'overlay', opacity: 0.45, zIndex: 30,
             }} />
 
-            {/* ── Scan lines ── */}
+            {/* scan lines */}
             <div style={{
                 position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 4,
-                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.011) 2px, rgba(255,255,255,0.011) 4px)',
+                backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,0.01) 2px,rgba(255,255,255,0.01) 4px)',
             }} />
 
-            {/* ── Vignette ── */}
+            {/* vignette */}
             <div style={{
                 position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5,
-                background: 'radial-gradient(ellipse 100% 100% at 50% 50%, transparent 35%, rgba(0,0,0,0.88) 100%)',
+                background: 'radial-gradient(ellipse 100% 100% at 50% 50%,transparent 30%,rgba(0,0,0,0.88) 100%)',
             }} />
 
-            {/* ── Cinematic letterbox bars ── */}
-            <div style={{
-                position: 'absolute', top: 0, left: 0, right: 0,
-                height: '9%', background: '#000', zIndex: 20, pointerEvents: 'none',
-            }} />
-            <div style={{
-                position: 'absolute', bottom: 0, left: 0, right: 0,
-                height: '9%', background: '#000', zIndex: 20, pointerEvents: 'none',
-            }} />
+            {/* letterbox — thinner on small phones */}
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 'clamp(36px,8%,72px)', background: '#000', zIndex: 20, pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 'clamp(36px,8%,72px)', background: '#000', zIndex: 20, pointerEvents: 'none' }} />
 
-            {/* ── Light sweeps ── */}
-            <LightSweep trigger={sweepA} delay={0} />
-            <LightSweep trigger={sweepB} delay={200} />
+            {/* sweeps */}
+            <Sweep active={sweepA} />
+            <Sweep active={sweepB} />
 
-            {/* ── Master opacity envelope ── */}
+            {/* master fade envelope */}
             <div style={{
-                position: 'absolute', inset: 0,
-                opacity,
-                transition: 'opacity 0.45s ease',
-                zIndex: 10,
+                position: 'absolute', inset: 0, zIndex: 10,
+                opacity: env, transition: 'opacity 0.45s ease',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: `clamp(48px,10%,90px) clamp(20px,6vw,56px)`,
+                boxSizing: 'border-box',
             }}>
 
-                {/* ══ SCENE 1 — Studio card ══ */}
+                {/* ── SCENE 1 ── studio card */}
                 {scene === 1 && (
                     <div style={{
                         textAlign: 'center',
-                        opacity: s1show ? 1 : 0,
-                        transform: s1show ? 'scale(1)' : 'scale(0.96)',
+                        opacity: s1 ? 1 : 0,
+                        transform: s1 ? 'scale(1)' : 'scale(0.95)',
                         transition: 'opacity 0.7s ease, transform 0.7s cubic-bezier(0.16,1,0.3,1)',
                     }}>
-                        {/* White gradient line above */}
-                        <div style={{
-                            width: 1, height: 48, background: 'linear-gradient(180deg, transparent, rgba(255,255,255,0.35))',
-                            margin: '0 auto 28px',
-                        }} />
+                        <div style={{ width: 1, height: 'clamp(32px,6vw,52px)', background: 'linear-gradient(180deg,transparent,rgba(255,255,255,0.32))', margin: '0 auto clamp(20px,4vw,28px)' }} />
                         <p style={{
-                            fontSize: 'clamp(1.4rem, 4vw, 2.4rem)',
-                            fontWeight: 800,
-                            letterSpacing: '-0.04em',
-                            color: '#fff',
-                            marginBottom: 10,
-                            lineHeight: 1,
+                            fontSize: 'clamp(1.2rem,5vw,2.4rem)',
+                            fontWeight: 800, letterSpacing: '-0.04em',
+                            lineHeight: 1, color: '#fff', margin: '0 0 10px',
                         }}>
                             XYLVANTHREX LABS
                         </p>
-                        <p style={{
-                            fontSize: 11,
-                            letterSpacing: '0.45em',
-                            color: 'rgba(255,255,255,0.3)',
-                            textTransform: 'uppercase',
-                            fontWeight: 400,
-                        }}>
+                        <p style={{ fontSize: 'clamp(9px,2vw,11px)', letterSpacing: '0.45em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', fontWeight: 400, margin: 0 }}>
                             PRESENTS
                         </p>
-                        {/* White gradient line below */}
-                        <div style={{
-                            width: 1, height: 48, background: 'linear-gradient(180deg, rgba(255,255,255,0.35), transparent)',
-                            margin: '28px auto 0',
-                        }} />
+                        <div style={{ width: 1, height: 'clamp(32px,6vw,52px)', background: 'linear-gradient(180deg,rgba(255,255,255,0.32),transparent)', margin: 'clamp(20px,4vw,28px) auto 0' }} />
                     </div>
                 )}
 
-                {/* ══ SCENE 2 — The problem ══ */}
+                {/* ── SCENE 2 ── the problem */}
                 {scene === 2 && (
-                    <div style={{ maxWidth: 620, width: '100%', padding: '0 40px' }}>
+                    <div style={{ maxWidth: 'min(600px,90vw)', width: '100%' }}>
                         {[
                             'Your neighborhood has 200 service workers.',
                             'None of them have a digital identity.',
                             'None of their work is recorded anywhere.',
                         ].map((text, i) => (
-                            <div key={i} style={{ overflow: 'hidden', marginBottom: 18 }}>
+                            <div key={i} style={{ overflow: 'hidden', marginBottom: 'clamp(12px,3vw,20px)' }}>
                                 <p style={{
-                                    fontSize: 'clamp(1rem, 2.5vw, 1.55rem)',
-                                    fontWeight: 700,
-                                    letterSpacing: '-0.03em',
-                                    lineHeight: 1.25,
-                                    background: i === 0
-                                        ? 'linear-gradient(135deg, #ffffff, rgba(255,255,255,0.8))'
-                                        : 'linear-gradient(135deg, rgba(255,255,255,0.75), rgba(255,255,255,0.5))',
-                                    WebkitBackgroundClip: 'text',
-                                    WebkitTextFillColor: 'transparent',
-                                    backgroundClip: 'text',
-                                    opacity: s2lines[i] ? 1 : 0,
-                                    transform: s2lines[i] ? 'translateY(0)' : 'translateY(100%)',
+                                    fontSize: 'clamp(1rem,3.5vw,1.55rem)',
+                                    fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.25,
+                                    margin: 0,
+                                    ...gradText(
+                                        i === 0 ? '#fff' : 'rgba(255,255,255,0.78)',
+                                        i === 0 ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.45)'
+                                    ),
+                                    opacity: s2[i] ? 1 : 0,
+                                    transform: s2[i] ? 'translateY(0)' : 'translateY(110%)',
                                     transition: 'opacity 0.55s ease, transform 0.55s cubic-bezier(0.16,1,0.3,1)',
-                                }}>
-                                    {text}
-                                </p>
+                                }}>{text}</p>
                             </div>
                         ))}
-                        {/* Horizontal accent */}
                         <div style={{
-                            height: 1, marginTop: 32,
-                            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)',
-                            opacity: s2lines[2] ? 1 : 0,
-                            transition: 'opacity 0.6s ease 0.3s',
+                            height: 1, marginTop: 'clamp(20px,4vw,32px)',
+                            background: 'linear-gradient(90deg,transparent,rgba(255,255,255,0.14),transparent)',
+                            opacity: s2[2] ? 1 : 0, transition: 'opacity 0.6s ease 0.3s',
                         }} />
                     </div>
                 )}
 
-                {/* ══ SCENE 3 — TRUVORNEX ══ */}
+                {/* ── SCENE 3 ── TRUVORNEX */}
                 {scene === 3 && (
-                    <div style={{ textAlign: 'center' }}>
+                    <div style={{ textAlign: 'center', width: '100%' }}>
                         <h1 style={{
-                            fontSize: s3word ? 'clamp(5rem, 14vw, 120px)' : '16px',
+                            fontSize: s3w ? 'clamp(3.8rem,14vw,110px)' : '14px',
                             fontWeight: 900,
-                            letterSpacing: s3word ? '-0.04em' : '0.1em',
-                            lineHeight: 1,
-                            background: 'linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0.6) 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text',
-                            filter: s3word ? (s3exit ? 'blur(12px)' : 'blur(0px)') : 'blur(20px)',
-                            opacity: s3exit ? 0 : (s3word ? 1 : 0),
-                            transform: s3exit ? 'scale(1.1) translateY(-10px)' : (s3word ? 'scale(1)' : 'scale(0.85)'),
-                            transition: s3word
-                                ? 'font-size 1.6s cubic-bezier(0.16,1,0.3,1), filter 1.2s ease, opacity 0.7s ease, transform 0.5s ease, letter-spacing 1.6s cubic-bezier(0.16,1,0.3,1)'
+                            letterSpacing: s3w ? '-0.04em' : '0.08em',
+                            lineHeight: 1, margin: '0 0 clamp(14px,3vw,20px)',
+                            ...gradText('#fff', 'rgba(255,255,255,0.58)'),
+                            filter: s3w ? (s3x ? 'blur(14px)' : 'blur(0)') : 'blur(20px)',
+                            opacity: s3x ? 0 : (s3w ? 1 : 0),
+                            transform: s3x ? 'scale(1.1) translateY(-12px)' : (s3w ? 'scale(1)' : 'scale(0.85)'),
+                            transition: s3w
+                                ? 'font-size 1.6s cubic-bezier(0.16,1,0.3,1),filter 1.2s ease,opacity 0.7s ease,transform 0.5s ease,letter-spacing 1.6s cubic-bezier(0.16,1,0.3,1)'
                                 : 'opacity 0.3s ease',
-                            marginBottom: 20,
                             display: 'block',
                         }}>
                             TRUVORNEX
                         </h1>
-
-                        {/* Diagonal white gradient accent under word */}
                         <div style={{
-                            width: 'clamp(200px, 40vw, 420px)',
-                            height: 1,
-                            margin: '0 auto 20px',
-                            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
-                            opacity: s3tag ? 1 : 0,
-                            transition: 'opacity 0.5s ease',
+                            width: 'clamp(140px,40vw,380px)', height: 1,
+                            margin: '0 auto clamp(14px,3vw,20px)',
+                            background: 'linear-gradient(90deg,transparent,rgba(255,255,255,0.38),transparent)',
+                            opacity: s3t ? 1 : 0, transition: 'opacity 0.5s ease',
                         }} />
-
                         <p style={{
-                            fontSize: 'clamp(11px, 1.5vw, 14px)',
-                            letterSpacing: '0.4em',
-                            textTransform: 'uppercase',
-                            fontWeight: 300,
-                            color: 'rgba(255,255,255,0.38)',
-                            opacity: s3tag ? 1 : 0,
-                            transform: s3tag ? 'translateY(0)' : 'translateY(10px)',
+                            fontSize: 'clamp(9px,2.2vw,13px)', letterSpacing: '0.38em',
+                            textTransform: 'uppercase', fontWeight: 300,
+                            color: 'rgba(255,255,255,0.36)', margin: 0,
+                            opacity: s3t ? 1 : 0,
+                            transform: s3t ? 'translateY(0)' : 'translateY(10px)',
                             transition: 'opacity 0.8s ease, transform 0.8s cubic-bezier(0.16,1,0.3,1)',
                         }}>
                             The neighborhood operating system
@@ -360,88 +300,67 @@ export default function Onboarding() {
                     </div>
                 )}
 
-                {/* ══ SCENE 4 — Fast cuts ══ */}
+                {/* ── SCENE 4 ── fast cuts */}
                 {scene === 4 && (
-                    <div key={cutIdx} style={{ textAlign: 'center', padding: '0 40px' }}>
-                        {/* Cut number */}
+                    <div key={cut} style={{ textAlign: 'center', width: '100%', padding: '0 clamp(8px,4vw,40px)', boxSizing: 'border-box' }}>
                         <p style={{
-                            fontSize: 11,
-                            letterSpacing: '0.35em',
-                            color: 'rgba(255,255,255,0.18)',
-                            textTransform: 'uppercase',
-                            marginBottom: 24,
-                            opacity: cutVis ? 1 : 0,
-                            transition: 'opacity 0.2s ease',
-                            fontWeight: 500,
+                            fontSize: 'clamp(9px,2vw,11px)', letterSpacing: '0.35em',
+                            color: 'rgba(255,255,255,0.18)', textTransform: 'uppercase',
+                            margin: '0 0 clamp(16px,4vw,24px)', fontWeight: 500,
+                            opacity: cutV ? 1 : 0, transition: 'opacity 0.2s ease',
                         }}>
-                            {String(cutIdx + 1).padStart(2, '0')} / {String(CUTS.length).padStart(2, '0')}
+                            {String(cut + 1).padStart(2,'0')} / {String(CUTS.length).padStart(2,'0')}
                         </p>
-
-                        {/* Big word */}
                         <h2 style={{
-                            fontSize: 'clamp(2.8rem, 9vw, 88px)',
-                            fontWeight: 900,
-                            letterSpacing: '-0.04em',
-                            lineHeight: 0.95,
-                            background: 'linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0.65) 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text',
-                            opacity: cutVis ? 1 : 0,
-                            transform: cutVis ? 'translateY(0) scale(1)' : 'translateY(16px) scale(0.95)',
+                            fontSize: 'clamp(2.2rem,10vw,84px)',
+                            fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 0.95,
+                            margin: '0 0 clamp(10px,2.5vw,14px)',
+                            ...gradText('#fff', 'rgba(255,255,255,0.62)'),
+                            opacity: cutV ? 1 : 0,
+                            transform: cutV ? 'translateY(0) scale(1)' : 'translateY(18px) scale(0.95)',
                             transition: 'opacity 0.22s ease, transform 0.22s cubic-bezier(0.16,1,0.3,1)',
-                            marginBottom: 14,
                         }}>
-                            {CUTS[cutIdx].word}
+                            {CUTS[cut].word}
                         </h2>
-
-                        {/* Sub text */}
                         <p style={{
-                            fontSize: 13,
-                            fontWeight: 300,
-                            letterSpacing: '0.2em',
-                            color: 'rgba(255,255,255,0.3)',
-                            textTransform: 'uppercase',
-                            opacity: cutVis ? 1 : 0,
-                            transition: 'opacity 0.25s ease 0.08s',
+                            fontSize: 'clamp(10px,2.5vw,13px)', fontWeight: 300,
+                            letterSpacing: '0.2em', color: 'rgba(255,255,255,0.28)',
+                            textTransform: 'uppercase', margin: 0,
+                            opacity: cutV ? 1 : 0, transition: 'opacity 0.25s ease 0.08s',
                         }}>
-                            {CUTS[cutIdx].sub}
+                            {CUTS[cut].sub}
                         </p>
-
-                        {/* White gradient bar that grows */}
                         <div style={{
-                            width: cutVis ? `${((cutIdx + 1) / CUTS.length) * 100}%` : '0%',
-                            maxWidth: 300,
-                            height: 1,
-                            margin: '28px auto 0',
-                            background: 'linear-gradient(90deg, rgba(255,255,255,0.1), rgba(255,255,255,0.5), rgba(255,255,255,0.1))',
+                            width: cutV ? `${((cut + 1) / CUTS.length) * 100}%` : '0%',
+                            maxWidth: 'min(260px,70vw)',
+                            height: 1, margin: 'clamp(20px,5vw,28px) auto 0',
+                            background: 'linear-gradient(90deg,rgba(255,255,255,0.08),rgba(255,255,255,0.48),rgba(255,255,255,0.08))',
                             transition: 'width 0.5s cubic-bezier(0.4,0,0.2,1)',
                         }} />
                     </div>
                 )}
 
-                {/* ══ SCENE 5 — Final CTA ══ */}
+                {/* ── SCENE 5 ── final CTA */}
                 {scene === 5 && (
-                    <div style={{ textAlign: 'center', maxWidth: 600, padding: '0 32px' }}>
-                        {/* Top gradient accent */}
+                    <div style={{
+                        textAlign: 'center',
+                        maxWidth: 'min(580px,92vw)', width: '100%',
+                    }}>
+                        {/* top accent */}
                         <div style={{
-                            width: 1, height: 56,
-                            background: 'linear-gradient(180deg, transparent, rgba(255,255,255,0.3))',
-                            margin: '0 auto 36px',
-                            opacity: s5a ? 1 : 0,
-                            transition: 'opacity 0.6s ease',
+                            width: 1, height: 'clamp(36px,7vw,56px)',
+                            background: 'linear-gradient(180deg,transparent,rgba(255,255,255,0.28))',
+                            margin: '0 auto clamp(24px,5vw,36px)',
+                            opacity: s5a ? 1 : 0, transition: 'opacity 0.6s ease',
                         }} />
 
+                        {/* headline line 1 */}
                         <div style={{ overflow: 'hidden', marginBottom: 4 }}>
                             <h1 style={{
-                                fontSize: 'clamp(2.2rem, 6vw, 4rem)',
-                                fontWeight: 900,
-                                letterSpacing: '-0.045em',
-                                lineHeight: 1.05,
-                                background: 'linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0.85) 100%)',
-                                WebkitBackgroundClip: 'text',
-                                WebkitTextFillColor: 'transparent',
-                                backgroundClip: 'text',
+                                fontSize: 'clamp(1.85rem,7vw,3.8rem)',
+                                fontWeight: 900, letterSpacing: '-0.045em', lineHeight: 1.06,
+                                margin: 0,
+                                ...gradText('#fff', 'rgba(255,255,255,0.88)'),
                                 opacity: s5a ? 1 : 0,
                                 transform: s5a ? 'translateY(0)' : 'translateY(100%)',
                                 transition: 'opacity 0.8s ease 0.05s, transform 0.8s cubic-bezier(0.16,1,0.3,1) 0.05s',
@@ -449,16 +368,14 @@ export default function Onboarding() {
                                 Built for the neighborhoods
                             </h1>
                         </div>
-                        <div style={{ overflow: 'hidden', marginBottom: 36 }}>
+
+                        {/* headline line 2 */}
+                        <div style={{ overflow: 'hidden', marginBottom: 'clamp(24px,5vw,36px)' }}>
                             <h1 style={{
-                                fontSize: 'clamp(2.2rem, 6vw, 4rem)',
-                                fontWeight: 900,
-                                letterSpacing: '-0.045em',
-                                lineHeight: 1.05,
-                                background: 'linear-gradient(180deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.4) 100%)',
-                                WebkitBackgroundClip: 'text',
-                                WebkitTextFillColor: 'transparent',
-                                backgroundClip: 'text',
+                                fontSize: 'clamp(1.85rem,7vw,3.8rem)',
+                                fontWeight: 900, letterSpacing: '-0.045em', lineHeight: 1.06,
+                                margin: 0,
+                                ...gradText('rgba(255,255,255,0.68)', 'rgba(255,255,255,0.35)'),
                                 opacity: s5a ? 1 : 0,
                                 transform: s5a ? 'translateY(0)' : 'translateY(100%)',
                                 transition: 'opacity 0.8s ease 0.18s, transform 0.8s cubic-bezier(0.16,1,0.3,1) 0.18s',
@@ -467,94 +384,129 @@ export default function Onboarding() {
                             </h1>
                         </div>
 
-                        {/* Horizontal divider */}
+                        {/* divider */}
                         <div style={{
-                            height: 1,
-                            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)',
-                            marginBottom: 24,
-                            opacity: s5b ? 1 : 0,
-                            transition: 'opacity 0.6s ease',
+                            height: 1, marginBottom: 'clamp(16px,4vw,24px)',
+                            background: 'linear-gradient(90deg,transparent,rgba(255,255,255,0.16),transparent)',
+                            opacity: s5b ? 1 : 0, transition: 'opacity 0.6s ease',
                         }} />
 
+                        {/* sub-tagline */}
                         <p style={{
-                            fontSize: 11,
-                            letterSpacing: '0.35em',
-                            color: 'rgba(255,255,255,0.28)',
-                            textTransform: 'uppercase',
-                            fontWeight: 400,
-                            marginBottom: 48,
-                            opacity: s5b ? 1 : 0,
-                            transition: 'opacity 0.7s ease 0.1s',
+                            fontSize: 'clamp(9px,2.2vw,11px)', letterSpacing: '0.35em',
+                            color: 'rgba(255,255,255,0.26)', textTransform: 'uppercase',
+                            fontWeight: 400, margin: '0 0 clamp(32px,7vw,48px)',
+                            opacity: s5b ? 1 : 0, transition: 'opacity 0.7s ease 0.1s',
                         }}>
-                            Hyderabad · Helsinki
+                            Your neighborhood, connected
                         </p>
 
-                        {/* CTA Buttons */}
+                        {/* CTA buttons — stack on mobile, row on wider */}
                         <div style={{
-                            display: 'flex', gap: 12, justifyContent: 'center',
-                            opacity: s5btns ? 1 : 0,
-                            transform: s5btns ? 'translateY(0)' : 'translateY(14px)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 'clamp(10px,2.5vw,12px)',
+                            width: '100%',
+                            opacity: s5btn ? 1 : 0,
+                            transform: s5btn ? 'translateY(0)' : 'translateY(16px)',
                             transition: 'opacity 0.6s ease, transform 0.6s cubic-bezier(0.16,1,0.3,1)',
                         }}>
                             <button
-                                onClick={() => done('/')}
-                                style={{
-                                    padding: '13px 32px', borderRadius: 12,
-                                    border: '1px solid rgba(255,255,255,0.2)',
-                                    background: 'rgba(255,255,255,0.04)',
-                                    color: 'rgba(255,255,255,0.75)',
-                                    fontSize: 14, fontWeight: 500, cursor: 'pointer',
-                                    fontFamily: 'inherit', letterSpacing: '-0.01em',
-                                    transition: 'all 0.2s ease',
-                                    backdropFilter: 'blur(8px)',
-                                }}
-                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = '#fff'; }}
-                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'rgba(255,255,255,0.75)'; }}
-                            >
-                                Explore
-                            </button>
-                            <button
                                 onClick={() => done('/login')}
                                 style={{
-                                    padding: '13px 32px', borderRadius: 12,
+                                    width: '100%',
+                                    padding: 'clamp(14px,3.5vw,16px) 0',
+                                    borderRadius: 'clamp(10px,2.5vw,14px)',
                                     border: '1px solid rgba(255,255,255,0.9)',
-                                    background: '#ffffff',
-                                    color: '#000000',
-                                    fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                                    fontFamily: 'inherit', letterSpacing: '-0.02em',
-                                    transition: 'all 0.2s ease',
-                                    boxShadow: '0 0 32px rgba(255,255,255,0.15)',
+                                    background: '#ffffff', color: '#000',
+                                    fontSize: 'clamp(13px,3vw,15px)', fontWeight: 700,
+                                    cursor: 'pointer', fontFamily: 'inherit',
+                                    letterSpacing: '-0.02em',
+                                    boxShadow: '0 0 32px rgba(255,255,255,0.14)',
+                                    touchAction: 'manipulation',
+                                    WebkitTapHighlightColor: 'transparent',
+                                    transition: 'box-shadow 0.2s ease, transform 0.2s ease',
+                                    minHeight: 52,
                                 }}
-                                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 48px rgba(255,255,255,0.3)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 32px rgba(255,255,255,0.15)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 48px rgba(255,255,255,0.28)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 32px rgba(255,255,255,0.14)'; e.currentTarget.style.transform = 'translateY(0)'; }}
                             >
                                 Sign Up Free
                             </button>
+                            <button
+                                onClick={() => done('/')}
+                                style={{
+                                    width: '100%',
+                                    padding: 'clamp(14px,3.5vw,16px) 0',
+                                    borderRadius: 'clamp(10px,2.5vw,14px)',
+                                    border: '1px solid rgba(255,255,255,0.16)',
+                                    background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.7)',
+                                    fontSize: 'clamp(13px,3vw,15px)', fontWeight: 500,
+                                    cursor: 'pointer', fontFamily: 'inherit',
+                                    letterSpacing: '-0.01em', backdropFilter: 'blur(8px)',
+                                    touchAction: 'manipulation',
+                                    WebkitTapHighlightColor: 'transparent',
+                                    transition: 'background 0.2s ease, color 0.2s ease',
+                                    minHeight: 52,
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = '#fff'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
+                            >
+                                Explore first
+                            </button>
                         </div>
 
-                        {/* Bottom gradient accent */}
+                        {/* bottom accent */}
                         <div style={{
-                            width: 1, height: 48,
-                            background: 'linear-gradient(180deg, rgba(255,255,255,0.2), transparent)',
-                            margin: '48px auto 0',
-                            opacity: s5c ? 1 : 0,
-                            transition: 'opacity 0.6s ease',
+                            width: 1, height: 'clamp(32px,6vw,48px)',
+                            background: 'linear-gradient(180deg,rgba(255,255,255,0.18),transparent)',
+                            margin: 'clamp(32px,6vw,48px) auto 0',
+                            opacity: s5c ? 1 : 0, transition: 'opacity 0.6s ease',
                         }} />
                     </div>
                 )}
             </div>
 
-            {/* ── Skip button ── */}
+            {/* Scene 4 — bottom progress pips */}
+            {scene === 4 && (
+                <div style={{
+                    position: 'absolute',
+                    bottom: 'clamp(44px,10%,80px)',
+                    left: 0, right: 0,
+                    display: 'flex', justifyContent: 'center',
+                    gap: 'clamp(3px,1vw,5px)', zIndex: 15,
+                }}>
+                    {CUTS.map((_, i) => (
+                        <div key={i} style={{
+                            height: 2,
+                            width: 'clamp(14px,3.5vw,22px)',
+                            borderRadius: 1,
+                            background: i <= cut ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.1)',
+                            transition: 'background 0.3s ease',
+                            boxShadow: i === cut ? '0 0 8px rgba(255,255,255,0.5)' : 'none',
+                        }} />
+                    ))}
+                </div>
+            )}
+
+            {/* Skip */}
             {skipVis && (
                 <button
-                    onClick={skipToFinal}
+                    onClick={goFinal}
                     style={{
-                        position: 'absolute', top: 28, right: 32, zIndex: 50,
+                        position: 'absolute',
+                        top: 'clamp(48px,10%,72px)',
+                        right: 'clamp(20px,5vw,36px)',
+                        zIndex: 50,
                         background: 'none', border: 'none', cursor: 'pointer',
-                        color: 'rgba(255,255,255,0.22)', fontSize: 11,
+                        color: 'rgba(255,255,255,0.22)',
+                        fontSize: 'clamp(10px,2vw,11px)',
                         letterSpacing: '0.15em', fontFamily: 'inherit',
                         fontWeight: 500, textTransform: 'uppercase',
-                        padding: '8px 4px',
+                        padding: '10px 4px',
+                        minHeight: 44, minWidth: 44,
+                        touchAction: 'manipulation',
+                        WebkitTapHighlightColor: 'transparent',
                         transition: 'color 0.2s ease',
                     }}
                     onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.55)'}
@@ -562,23 +514,6 @@ export default function Onboarding() {
                 >
                     Skip →
                 </button>
-            )}
-
-            {/* ── Scene 4 progress line (visible bottom strip) ── */}
-            {scene === 4 && (
-                <div style={{
-                    position: 'absolute', bottom: '11%', left: 0, right: 0,
-                    display: 'flex', justifyContent: 'center', gap: 4, zIndex: 15,
-                }}>
-                    {CUTS.map((_, i) => (
-                        <div key={i} style={{
-                            height: 2, width: 20, borderRadius: 1,
-                            background: i <= cutIdx ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.1)',
-                            transition: 'background 0.3s ease',
-                            boxShadow: i === cutIdx ? '0 0 8px rgba(255,255,255,0.5)' : 'none',
-                        }} />
-                    ))}
-                </div>
             )}
         </div>
     );
