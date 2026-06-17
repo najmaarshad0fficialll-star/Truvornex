@@ -364,7 +364,7 @@ export default function Home() {
                     lineHeight: 1.1,
                     textAlign: 'center',
                 }}>
-                    Now Your neighborhood<br />is connected
+                    Your neighborhood, connected
                 </h1>
 
                 {/* short subtitle */}

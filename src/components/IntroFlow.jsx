@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { ArrowRight } from 'lucide-react';
 
 const SLIDES = [
@@ -29,15 +29,58 @@ const SLIDES = [
     },
 ];
 
+const LINE_COUNT = 9;
+const LINES = Array.from({ length: LINE_COUNT }, (_, i) => ({
+    top: `${8 + i * 10.5}%`,
+    opacity: 0.025 + (i % 3) * 0.012,
+    factor: (i - Math.floor(LINE_COUNT / 2)) * 0.055,
+}));
+
 export default function IntroFlow({ onComplete }) {
     const [current, setCurrent] = useState(0);
     const [visible, setVisible] = useState(true);
     const [leaving, setLeaving] = useState(false);
+    const [lineOffset, setLineOffset] = useState(0);
     const locked = useRef(false);
     const touchStartX = useRef(null);
+    const rafId = useRef(null);
+    const targetOffset = useRef(0);
+    const currentOffset = useRef(0);
 
     const slide = SLIDES[current];
     const isLast = current === SLIDES.length - 1;
+
+    const handleMouseMove = useCallback((e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        targetOffset.current = ((e.clientX - rect.width / 2) / rect.width);
+        if (!rafId.current) {
+            const animate = () => {
+                currentOffset.current += (targetOffset.current - currentOffset.current) * 0.08;
+                setLineOffset(currentOffset.current);
+                rafId.current = Math.abs(currentOffset.current - targetOffset.current) > 0.001
+                    ? requestAnimationFrame(animate)
+                    : null;
+            };
+            rafId.current = requestAnimationFrame(animate);
+        }
+    }, []);
+
+    const handleMouseLeave = useCallback(() => {
+        targetOffset.current = 0;
+        const animate = () => {
+            currentOffset.current += (0 - currentOffset.current) * 0.06;
+            setLineOffset(currentOffset.current);
+            if (Math.abs(currentOffset.current) > 0.001) {
+                rafId.current = requestAnimationFrame(animate);
+            } else {
+                currentOffset.current = 0;
+                setLineOffset(0);
+                rafId.current = null;
+            }
+        };
+        if (rafId.current) cancelAnimationFrame(rafId.current);
+        rafId.current = requestAnimationFrame(animate);
+    }, []);
 
     const transition = (nextIdx) => {
         if (locked.current) return;
@@ -47,11 +90,10 @@ export default function IntroFlow({ onComplete }) {
             setCurrent(nextIdx);
             setVisible(true);
             setTimeout(() => { locked.current = false; }, 500);
-        }, 380);
+        }, 360);
     };
 
     const next = () => isLast ? finish() : transition(current + 1);
-
     const goTo = (idx) => {
         if (idx === current || idx < 0 || idx >= SLIDES.length) return;
         transition(idx);
@@ -84,32 +126,57 @@ export default function IntroFlow({ onComplete }) {
                 opacity: leaving ? 0 : 1,
                 transition: leaving ? 'opacity 0.8s ease' : 'none',
             }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
             onTouchStart={onTouchStart}
             onTouchEnd={onTouchEnd}
         >
-            {/* Background gradient — soft white light from top */}
+            {/* Gradient — soft white bloom from top */}
             <div style={{
                 position: 'absolute', inset: 0, pointerEvents: 'none',
-                background: 'radial-gradient(ellipse 80% 60% at 50% -10%, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.02) 50%, transparent 75%)',
+                background: 'radial-gradient(ellipse 100% 55% at 50% -5%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.015) 55%, transparent 80%)',
             }} />
-            {/* Bottom fade to pure black */}
+
+            {/* Animated lines */}
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+                {LINES.map((line, i) => (
+                    <div
+                        key={i}
+                        style={{
+                            position: 'absolute',
+                            top: line.top,
+                            left: 0, right: 0,
+                            height: 1,
+                            background: `linear-gradient(90deg, transparent 0%, rgba(255,255,255,${line.opacity * 3}) 20%, rgba(255,255,255,${line.opacity}) 50%, rgba(255,255,255,${line.opacity * 3}) 80%, transparent 100%)`,
+                            transform: `translateX(${lineOffset * line.factor * 100}vw)`,
+                            willChange: 'transform',
+                        }}
+                    />
+                ))}
+            </div>
+
+            {/* Bottom fade */}
             <div style={{
                 position: 'absolute', bottom: 0, left: 0, right: 0,
-                height: '40%', pointerEvents: 'none',
-                background: 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.6))',
+                height: '35%', pointerEvents: 'none',
+                background: 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.65))',
             }} />
 
             {/* Skip */}
             <button
                 onClick={finish}
                 style={{
-                    position: 'absolute', top: 22, right: 22, zIndex: 30,
+                    position: 'absolute', top: 20, right: 20, zIndex: 30,
                     fontSize: 10, fontWeight: 600,
                     letterSpacing: '0.14em', textTransform: 'uppercase',
                     color: 'rgba(255,255,255,0.22)',
                     background: 'none', border: 'none', cursor: 'pointer',
-                    padding: '6px 2px',
+                    padding: '8px 4px',
                     transition: 'color 0.3s',
+                    WebkitTapHighlightColor: 'transparent',
+                    touchAction: 'manipulation',
+                    minHeight: 44, minWidth: 44,
+                    display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
                 }}
                 onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.5)'}
                 onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.22)'}
@@ -117,69 +184,73 @@ export default function IntroFlow({ onComplete }) {
                 Skip
             </button>
 
-            {/* Main content */}
+            {/* Main content — full screen, mobile-first */}
             <div style={{
                 flex: 1,
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                padding: '0 clamp(28px, 8vw, 72px)',
+                justifyContent: 'flex-start',
+                padding: 'clamp(80px, 14vh, 120px) clamp(24px, 6vw, 56px) 0',
                 position: 'relative', zIndex: 10,
                 opacity: visible ? 1 : 0,
-                transform: visible ? 'translateY(0)' : 'translateY(14px)',
-                transition: 'opacity 0.5s cubic-bezier(0.16,1,0.3,1), transform 0.5s cubic-bezier(0.16,1,0.3,1)',
+                transform: visible ? 'translateY(0)' : 'translateY(16px)',
+                transition: 'opacity 0.48s cubic-bezier(0.16,1,0.3,1), transform 0.48s cubic-bezier(0.16,1,0.3,1)',
             }}>
-                <div style={{ width: '100%', maxWidth: 380 }}>
+                <div style={{ width: '100%' }}>
                     <p style={{
-                        fontSize: 10, fontWeight: 600,
-                        letterSpacing: '0.2em', textTransform: 'uppercase',
+                        fontSize: 'clamp(9px, 2.2vw, 11px)',
+                        fontWeight: 600,
+                        letterSpacing: '0.2em',
+                        textTransform: 'uppercase',
                         color: 'rgba(255,255,255,0.28)',
-                        marginBottom: 18,
+                        marginBottom: 'clamp(14px, 3vw, 22px)',
                         fontFamily: "'Inter', system-ui, sans-serif",
                     }}>
                         {slide.overline}
                     </p>
 
                     <h1 style={{
-                        fontSize: 'clamp(1.9rem, 7vw, 2.6rem)',
+                        fontSize: 'clamp(2.4rem, 11vw, 4.5rem)',
                         fontWeight: 700,
                         fontFamily: "'Inter', system-ui, sans-serif",
                         letterSpacing: '-0.04em',
-                        lineHeight: 1.08,
+                        lineHeight: 1.05,
                         color: '#fff',
-                        marginBottom: 20,
+                        marginBottom: 'clamp(16px, 4vw, 28px)',
                         whiteSpace: 'pre-line',
                     }}>
                         {slide.title}
                     </h1>
 
                     <p style={{
-                        fontSize: 14,
-                        lineHeight: 1.75,
-                        color: 'rgba(255,255,255,0.35)',
+                        fontSize: 'clamp(13px, 3.5vw, 16px)',
+                        lineHeight: 1.7,
+                        color: 'rgba(255,255,255,0.34)',
                         letterSpacing: '-0.01em',
                         fontFamily: "'Inter', system-ui, sans-serif",
+                        maxWidth: '36ch',
                     }}>
                         {slide.body}
                     </p>
                 </div>
             </div>
 
-            {/* Bottom nav */}
+            {/* Bottom nav — full width */}
             <div style={{
-                padding: '0 clamp(28px, 8vw, 72px)',
-                paddingBottom: 'max(32px, env(safe-area-inset-bottom, 32px))',
+                padding: '0 clamp(24px, 6vw, 56px)',
+                paddingBottom: 'max(36px, env(safe-area-inset-bottom, 36px))',
+                paddingTop: 24,
                 position: 'relative', zIndex: 20,
             }}>
-                {/* Dots */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 18 }}>
+                {/* Progress dots */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
                     {SLIDES.map((_, i) => (
                         <button
                             key={i}
                             onClick={() => goTo(i)}
                             style={{
                                 height: 3,
-                                width: i === current ? 26 : 3,
+                                width: i === current ? 28 : 3,
                                 borderRadius: 999,
                                 border: 'none',
                                 cursor: 'pointer',
@@ -189,21 +260,22 @@ export default function IntroFlow({ onComplete }) {
                                     : i < current
                                         ? 'rgba(255,255,255,0.2)'
                                         : 'rgba(255,255,255,0.08)',
-                                transition: 'all 0.5s cubic-bezier(0.4,0,0.2,1)',
+                                transition: 'all 0.45s cubic-bezier(0.4,0,0.2,1)',
                                 touchAction: 'manipulation',
+                                minHeight: 20,
                             }}
                         />
                     ))}
                 </div>
 
-                {/* CTA */}
+                {/* CTA — full width */}
                 <button
                     onClick={next}
                     style={{
                         width: '100%',
-                        height: 52,
-                        borderRadius: 13,
-                        fontSize: 14,
+                        height: 'clamp(50px, 13vw, 56px)',
+                        borderRadius: 14,
+                        fontSize: 'clamp(14px, 3.5vw, 16px)',
                         fontWeight: 600,
                         fontFamily: "'Inter', system-ui, sans-serif",
                         letterSpacing: '-0.02em',
@@ -225,9 +297,18 @@ export default function IntroFlow({ onComplete }) {
                     onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
                 >
                     {isLast ? 'Get Started' : 'Continue'}
-                    <ArrowRight style={{ width: 15, height: 15 }} />
+                    <ArrowRight style={{ width: 16, height: 16 }} />
                 </button>
             </div>
+
+            <style>{`
+                @media (hover: none) {
+                    @keyframes lineDrift {
+                        0%, 100% { transform: translateX(-2vw); }
+                        50%       { transform: translateX(2vw); }
+                    }
+                }
+            `}</style>
         </div>
     );
 }
