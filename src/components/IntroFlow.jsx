@@ -1,57 +1,49 @@
-import { useState, useRef } from 'react';
-import { ArrowRight, Zap, Shield, Users, Cpu, Star, Globe, CheckCircle2, Sparkles, Briefcase, MapPin, Clock, Building2, Home, Handshake, Rocket } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { ArrowRight } from 'lucide-react';
 
 const SLIDES = [
     {
         id: 0,
-        badge: 'Welcome',
+        overline: 'Welcome',
         title: 'Your Neighborhood\nOS Has Arrived',
-        subtitle: 'Truvornex connects you with trusted local service providers — powered by Simon AI, built for your community.',
-        Visual: Building2,
-        accentChar: '01',
-        features: [
-            { icon: Zap,    text: '2,400+ verified providers in your area' },
-            { icon: Shield, text: 'Every booking is insured & guaranteed'  },
-            { icon: Cpu,    text: 'Simon AI personalises your experience'  },
+        body: 'Truvornex connects you with trusted local service providers — powered by Simon AI, built for your community.',
+        stats: [
+            { value: '2,400+', label: 'Verified providers' },
+            { value: '15k+',   label: 'Five-star reviews'  },
+            { value: '60s',    label: 'Average booking'    },
         ],
     },
     {
         id: 1,
-        badge: 'What It Is',
-        title: 'One App for\nEvery Home Need',
-        subtitle: 'From emergency plumbing at 2am to weekly cleaning — book any local service in 60 seconds, 24/7.',
-        Visual: Home,
-        accentChar: '02',
-        features: [
-            { icon: Clock,  text: 'Same-day & emergency bookings'      },
-            { icon: MapPin, text: 'Hyperlocal providers in your street' },
-            { icon: Star,   text: '4.9 avg across 15,000+ reviews'     },
+        overline: 'One App',
+        title: 'Every Home Need,\nCovered',
+        body: 'From emergency plumbing at 2 am to weekly cleaning — book any local service 24/7, in seconds.',
+        stats: [
+            { value: '24/7',  label: 'Always available'    },
+            { value: '4.9★',  label: 'Average rating'      },
+            { value: '35%',   label: 'Group buy savings'   },
         ],
     },
     {
         id: 2,
-        badge: 'Why It Exists',
-        title: 'Community-First\nService Platform',
-        subtitle: "We built Truvornex because finding trustworthy help shouldn't take hours of Googling, calling, and hoping.",
-        Visual: Handshake,
-        accentChar: '03',
-        features: [
-            { icon: Users,    text: 'Neighbors vouching for every provider' },
-            { icon: Globe,    text: 'Group buy deals — save up to 35%'       },
-            { icon: Sparkles, text: 'Skill swaps & community time credits'  },
+        overline: 'Community First',
+        title: 'Trust Built by\nNeighbors',
+        body: "We built Truvornex because finding trustworthy help shouldn't take hours. Real people, real reviews, real results.",
+        stats: [
+            { value: '100%',  label: 'Insured bookings'    },
+            { value: '3min',  label: 'Provider response'   },
+            { value: '98%',   label: 'Satisfaction rate'   },
         ],
     },
     {
         id: 3,
-        badge: 'Get Started',
+        overline: 'Get Started',
         title: 'Ready to Transform\nYour Neighborhood?',
-        subtitle: 'Join 2,400+ households already using Truvornex. It only takes 30 seconds to get started.',
-        Visual: Rocket,
-        accentChar: '04',
-        features: [
-            { icon: CheckCircle2, text: 'Free to join — no hidden fees'  },
-            { icon: Briefcase,    text: 'Providers earn more, stress less' },
-            { icon: Shield,       text: 'Your data is always private'     },
+        body: 'Join thousands of households already using Truvornex. Free to join — it only takes 30 seconds.',
+        stats: [
+            { value: 'Free',  label: 'No hidden fees'      },
+            { value: 'Instant', label: 'Provider payouts'  },
+            { value: 'Safe',  label: 'Data always private' },
         ],
         isCta: true,
     },
@@ -59,25 +51,41 @@ const SLIDES = [
 
 export default function IntroFlow({ onComplete }) {
     const [current, setCurrent] = useState(0);
-    const [animating, setAnimating] = useState(false);
-    const [exitDir, setExitDir] = useState(1);
+    const [visible, setVisible] = useState(true);
+    const [leaving, setLeaving] = useState(false);
     const touchStartX = useRef(null);
+    const locked = useRef(false);
 
     const slide = SLIDES[current];
     const isLast = current === SLIDES.length - 1;
 
-    const goTo = (idx) => {
-        if (idx === current || idx < 0 || idx >= SLIDES.length || animating) return;
-        setExitDir(idx > current ? 1 : -1);
-        setAnimating(true);
-        setTimeout(() => { setCurrent(idx); setAnimating(false); }, 300);
+    const transition = (nextIdx) => {
+        if (locked.current) return;
+        locked.current = true;
+        setVisible(false);
+        setTimeout(() => {
+            setCurrent(nextIdx);
+            setVisible(true);
+            setTimeout(() => { locked.current = false; }, 600);
+        }, 420);
     };
 
-    const next = () => isLast ? finish() : goTo(current + 1);
+    const next = () => {
+        if (isLast) { finish(); return; }
+        transition(current + 1);
+    };
+
+    const goTo = (idx) => {
+        if (idx === current || idx < 0 || idx >= SLIDES.length) return;
+        transition(idx);
+    };
 
     const finish = () => {
-        localStorage.setItem('truvornex-intro-seen', '1');
-        onComplete();
+        setLeaving(true);
+        setTimeout(() => {
+            localStorage.setItem('truvornex-intro-seen', '1');
+            onComplete();
+        }, 700);
     };
 
     const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
@@ -89,204 +97,148 @@ export default function IntroFlow({ onComplete }) {
         else if (delta > 50 && current > 0) goTo(current - 1);
     };
 
-    const VisualIcon = slide.Visual;
-
     return (
         <div
             className="fixed inset-0 z-[9998] flex flex-col overflow-hidden"
-            style={{ backgroundColor: '#080808' }}
+            style={{
+                backgroundColor: '#060606',
+                opacity: leaving ? 0 : 1,
+                transition: leaving ? 'opacity 0.8s cubic-bezier(0.4,0,1,1)' : 'none',
+            }}
             onTouchStart={onTouchStart}
             onTouchEnd={onTouchEnd}
         >
-            {/* Atmospheric background */}
-            <div className="absolute inset-0 pointer-events-none">
-                {/* Fine grid */}
+            {/* Ambient background — shifts subtly per slide */}
+            <div style={{
+                position: 'absolute', inset: 0, pointerEvents: 'none',
+                opacity: visible ? 1 : 0,
+                transition: 'opacity 0.8s ease',
+            }}>
+                <div style={{
+                    position: 'absolute',
+                    top: -120, left: '50%', transform: 'translateX(-50%)',
+                    width: 700, height: 500,
+                    background: `radial-gradient(ellipse, ${SLIDES[current].id % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(200,210,255,0.03)'} 0%, transparent 65%)`,
+                }} />
                 <div style={{
                     position: 'absolute', inset: 0,
-                    backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
-                    backgroundSize: '48px 48px',
+                    backgroundImage: 'linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)',
+                    backgroundSize: '64px 64px',
                 }} />
-                {/* Top center radial glow */}
                 <div style={{
-                    position: 'absolute',
-                    top: -100, left: '50%', transform: 'translateX(-50%)',
-                    width: 600, height: 500,
-                    background: 'radial-gradient(ellipse, rgba(255,255,255,0.05) 0%, transparent 65%)',
-                    pointerEvents: 'none',
-                }} />
-                {/* Bottom glow */}
-                <div style={{
-                    position: 'absolute',
-                    bottom: -60, left: '50%', transform: 'translateX(-50%)',
-                    width: 500, height: 300,
-                    background: 'radial-gradient(ellipse, rgba(255,255,255,0.025) 0%, transparent 70%)',
-                    pointerEvents: 'none',
+                    position: 'absolute', inset: 0,
+                    background: 'radial-gradient(ellipse 100% 100% at 50% 50%, transparent 40%, rgba(0,0,0,0.7) 100%)',
                 }} />
             </div>
 
             {/* Skip */}
-            <div className="absolute top-5 right-5 z-20">
-                <button onClick={finish} style={{
-                    fontSize: 11,
+            <button
+                onClick={finish}
+                style={{
+                    position: 'absolute', top: 20, right: 20, zIndex: 30,
+                    fontSize: 10,
                     fontWeight: 600,
-                    letterSpacing: '0.06em',
+                    letterSpacing: '0.12em',
                     textTransform: 'uppercase',
-                    color: 'rgba(255,255,255,0.3)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
+                    color: 'rgba(255,255,255,0.25)',
+                    background: 'none', border: 'none', cursor: 'pointer',
                     padding: '8px 4px',
-                    touchAction: 'manipulation',
-                    transition: 'color 0.2s',
+                    transition: 'color 0.3s',
                 }}
-                onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.6)'}
-                onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.3)'}>
-                    Skip
-                </button>
-            </div>
+                onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.55)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.25)'}
+            >
+                Skip
+            </button>
 
-            {/* Slide number watermark */}
+            {/* Slide content — cross-dissolve */}
             <div style={{
-                position: 'absolute',
-                top: '50%', right: 20,
-                transform: 'translateY(-50%)',
-                fontSize: 80,
-                fontWeight: 900,
-                color: 'rgba(255,255,255,0.025)',
-                letterSpacing: '-0.06em',
-                lineHeight: 1,
-                fontFamily: "'Plus Jakarta Sans', sans-serif",
-                pointerEvents: 'none',
-                userSelect: 'none',
-                transition: 'all 0.4s ease',
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 clamp(24px, 7vw, 64px)',
+                position: 'relative', zIndex: 10,
+                opacity: visible ? 1 : 0,
+                transform: visible ? 'translateY(0)' : 'translateY(16px)',
+                transition: 'opacity 0.55s cubic-bezier(0.16,1,0.3,1), transform 0.55s cubic-bezier(0.16,1,0.3,1)',
             }}>
-                {slide.accentChar}
-            </div>
+                <div style={{ width: '100%', maxWidth: 400 }}>
 
-            {/* Main content */}
-            <div className="flex-1 flex flex-col items-center justify-center px-6 relative z-10">
-                <div style={{
-                    width: '100%',
-                    maxWidth: 420,
-                    opacity: animating ? 0 : 1,
-                    transform: animating ? `translateX(${exitDir > 0 ? '-40px' : '40px'})` : 'translateX(0)',
-                    transition: 'opacity 0.28s ease, transform 0.28s cubic-bezier(0.19,1,0.22,1)',
-                }}>
-                    {/* Visual icon — large prominent display */}
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
-                        <div style={{ position: 'relative' }}>
-                            {/* Outer ring */}
-                            <div style={{
-                                position: 'absolute',
-                                inset: -16,
-                                borderRadius: 32,
-                                border: '1px solid rgba(255,255,255,0.06)',
-                                animation: 'introRingSpin 18s linear infinite',
-                            }} />
-                            {/* Icon box */}
-                            <div style={{
-                                width: 80,
-                                height: 80,
-                                borderRadius: 24,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                background: 'linear-gradient(145deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
-                                border: '1px solid rgba(255,255,255,0.14)',
-                                boxShadow: '0 20px 60px rgba(0,0,0,0.6), 0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)',
-                                position: 'relative',
-                            }}>
-                                <VisualIcon style={{ width: 32, height: 32, color: 'rgba(255,255,255,0.9)', strokeWidth: 1.5 }} />
-                            </div>
-                        </div>
-                    </div>
+                    {/* Overline */}
+                    <p style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: '0.22em',
+                        textTransform: 'uppercase',
+                        color: 'rgba(255,255,255,0.3)',
+                        marginBottom: 20,
+                        fontFamily: "'Inter', system-ui, sans-serif",
+                    }}>
+                        {slide.overline}
+                    </p>
 
-                    {/* Badge */}
-                    <div style={{ textAlign: 'center', marginBottom: 14 }}>
-                        <span style={{
-                            display: 'inline-block',
-                            fontSize: 9,
-                            fontWeight: 700,
-                            letterSpacing: '0.18em',
-                            textTransform: 'uppercase',
-                            color: 'rgba(255,255,255,0.45)',
-                            background: 'rgba(255,255,255,0.04)',
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            padding: '5px 16px',
-                            borderRadius: 999,
-                        }}>
-                            {slide.badge}
-                        </span>
-                    </div>
-
-                    {/* Title — display size */}
+                    {/* Title — editorial */}
                     <h1 style={{
-                        fontSize: 'clamp(1.65rem,6vw,2.2rem)',
-                        fontWeight: 800,
-                        fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
-                        letterSpacing: '-0.05em',
-                        lineHeight: 1.06,
+                        fontSize: 'clamp(1.75rem, 6.5vw, 2.5rem)',
+                        fontWeight: 700,
+                        fontFamily: "'Inter', system-ui, sans-serif",
+                        letterSpacing: '-0.04em',
+                        lineHeight: 1.08,
                         color: '#ffffff',
-                        textAlign: 'center',
-                        marginBottom: 16,
+                        marginBottom: 20,
                         whiteSpace: 'pre-line',
                     }}>
                         {slide.title}
                     </h1>
 
-                    {/* Subtitle */}
+                    {/* Body */}
                     <p style={{
-                        fontSize: 13,
-                        lineHeight: 1.7,
-                        color: 'rgba(255,255,255,0.42)',
-                        textAlign: 'center',
-                        margin: '0 auto 28px',
-                        maxWidth: 320,
+                        fontSize: 14,
+                        lineHeight: 1.75,
+                        color: 'rgba(255,255,255,0.38)',
+                        marginBottom: 36,
                         letterSpacing: '-0.005em',
                     }}>
-                        {slide.subtitle}
+                        {slide.body}
                     </p>
 
-                    {/* Feature rows */}
+                    {/* Stats — horizontal, minimal */}
                     <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                        marginBottom: 8,
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: 1,
+                        borderTop: '1px solid rgba(255,255,255,0.07)',
+                        paddingTop: 24,
                     }}>
-                        {slide.features.map(({ icon: Icon, text }, i) => (
+                        {slide.stats.map(({ value, label }, i) => (
                             <div key={i} style={{
                                 display: 'flex',
-                                alignItems: 'center',
-                                gap: 14,
-                                padding: '12px 16px',
-                                background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(255,255,255,0.07)',
-                                borderRadius: 14,
-                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-                                animation: `introFeatureIn 0.4s cubic-bezier(0.19,1,0.22,1) ${0.05 + i * 0.06}s both`,
+                                flexDirection: 'column',
+                                gap: 4,
+                                paddingRight: i < 2 ? 16 : 0,
+                                borderRight: i < 2 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                                paddingLeft: i > 0 ? 16 : 0,
                             }}>
-                                <div style={{
-                                    width: 34,
-                                    height: 34,
-                                    borderRadius: 11,
-                                    flexShrink: 0,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    background: 'rgba(255,255,255,0.05)',
-                                    border: '1px solid rgba(255,255,255,0.1)',
-                                }}>
-                                    <Icon style={{ width: 15, height: 15, color: 'rgba(255,255,255,0.7)', strokeWidth: 1.8 }} />
-                                </div>
                                 <span style={{
-                                    fontSize: 13,
-                                    color: 'rgba(255,255,255,0.7)',
-                                    fontWeight: 500,
-                                    letterSpacing: '-0.01em',
-                                    lineHeight: 1.4,
+                                    fontSize: 'clamp(1rem, 4vw, 1.25rem)',
+                                    fontWeight: 700,
+                                    fontFamily: "'Inter', system-ui, sans-serif",
+                                    letterSpacing: '-0.04em',
+                                    color: '#fff',
+                                    lineHeight: 1,
                                 }}>
-                                    {text}
+                                    {value}
+                                </span>
+                                <span style={{
+                                    fontSize: 10,
+                                    color: 'rgba(255,255,255,0.28)',
+                                    letterSpacing: '0.04em',
+                                    lineHeight: 1.4,
+                                    fontWeight: 400,
+                                }}>
+                                    {label}
                                 </span>
                             </div>
                         ))}
@@ -294,96 +246,75 @@ export default function IntroFlow({ onComplete }) {
                 </div>
             </div>
 
-            {/* Bottom navigation */}
-            <div style={{ padding: '0 24px', paddingBottom: 'max(32px, env(safe-area-inset-bottom, 32px))', position: 'relative', zIndex: 20 }}>
-                {/* Progress line + dots */}
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, marginBottom: 20 }}>
+            {/* Bottom bar */}
+            <div style={{
+                padding: '0 clamp(24px, 7vw, 64px)',
+                paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
+                position: 'relative', zIndex: 20,
+            }}>
+                {/* Progress dots */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginBottom: 16,
+                }}>
                     {SLIDES.map((_, i) => (
-                        <button key={i} onClick={() => goTo(i)} style={{
-                            height: 4,
-                            width: i === current ? 32 : 4,
-                            borderRadius: 999,
-                            border: 'none',
-                            cursor: 'pointer',
-                            padding: 0,
-                            background: i === current
-                                ? 'rgba(255,255,255,0.85)'
-                                : i < current
-                                    ? 'rgba(255,255,255,0.25)'
-                                    : 'rgba(255,255,255,0.1)',
-                            transition: 'all 0.4s cubic-bezier(0.19,1,0.22,1)',
-                            touchAction: 'manipulation',
-                            boxShadow: i === current ? '0 0 16px rgba(255,255,255,0.3)' : 'none',
-                        }} />
+                        <button
+                            key={i}
+                            onClick={() => goTo(i)}
+                            style={{
+                                height: 3,
+                                width: i === current ? 28 : 3,
+                                borderRadius: 999,
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: 0,
+                                background: i === current
+                                    ? 'rgba(255,255,255,0.8)'
+                                    : i < current
+                                        ? 'rgba(255,255,255,0.22)'
+                                        : 'rgba(255,255,255,0.1)',
+                                transition: 'all 0.5s cubic-bezier(0.4,0,0.2,1)',
+                                touchAction: 'manipulation',
+                            }}
+                        />
                     ))}
                 </div>
 
-                {/* Primary CTA */}
-                <button onClick={next} style={{
-                    width: '100%',
-                    height: 54,
-                    borderRadius: 16,
-                    fontSize: 15,
-                    fontWeight: 700,
-                    fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
-                    letterSpacing: '-0.025em',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 10,
-                    background: '#ffffff',
-                    color: '#080808',
-                    border: 'none',
-                    cursor: 'pointer',
-                    boxShadow: '0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(255,255,255,0.12)',
-                    touchAction: 'manipulation',
-                    WebkitTapHighlightColor: 'transparent',
-                    transition: 'all 0.2s ease',
-                    position: 'relative',
-                    overflow: 'hidden',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.2), 0 12px 40px rgba(255,255,255,0.18)'; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(255,255,255,0.12)'; }}
-                onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.98)'; }}
-                onMouseUp={e => { e.currentTarget.style.transform = 'translateY(-1px)'; }}>
-                    {/* Shimmer */}
-                    <div style={{
-                        position: 'absolute', inset: 0,
-                        background: 'linear-gradient(105deg, transparent 25%, rgba(0,0,0,0.06) 50%, transparent 75%)',
-                        animation: 'introShimmer 3s ease-in-out infinite',
-                    }} />
-                    <span style={{ position: 'relative', zIndex: 1 }}>
-                        {isLast ? 'Get Started' : 'Continue'}
-                    </span>
-                    <ArrowRight style={{ width: 17, height: 17, position: 'relative', zIndex: 1 }} />
+                {/* CTA */}
+                <button
+                    onClick={next}
+                    style={{
+                        width: '100%',
+                        height: 52,
+                        borderRadius: 14,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        fontFamily: "'Inter', system-ui, sans-serif",
+                        letterSpacing: '-0.02em',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        background: '#ffffff',
+                        color: '#080808',
+                        border: 'none',
+                        cursor: 'pointer',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.12), 0 4px 24px rgba(255,255,255,0.08)',
+                        touchAction: 'manipulation',
+                        WebkitTapHighlightColor: 'transparent',
+                        transition: 'opacity 0.2s ease, transform 0.2s ease',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.opacity = '0.92'; }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+                    onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.985)'; }}
+                    onMouseUp={e => { e.currentTarget.style.transform = 'scale(1)'; }}
+                >
+                    {isLast ? 'Get Started' : 'Continue'}
+                    <ArrowRight style={{ width: 15, height: 15 }} />
                 </button>
-
-                <p style={{
-                    textAlign: 'center',
-                    fontSize: 10.5,
-                    marginTop: 14,
-                    color: 'rgba(255,255,255,0.2)',
-                    fontWeight: 500,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                }}>
-                    {current + 1} / {SLIDES.length}
-                </p>
             </div>
-
-            <style>{`
-                @keyframes introRingSpin {
-                    to { transform: rotate(360deg); }
-                }
-                @keyframes introFeatureIn {
-                    from { opacity: 0; transform: translateY(10px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-                @keyframes introShimmer {
-                    0%, 100% { transform: translateX(-100%); }
-                    50% { transform: translateX(100%); }
-                }
-            `}</style>
         </div>
     );
 }
