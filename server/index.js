@@ -245,6 +245,70 @@ app.post('/api/ai/chat', async (req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
+/* ── Self-Computing Intelligence System ─────────────────────────────────── */
+
+// Zone intelligence — all zones ranked by health score
+app.get('/api/intelligence/zones', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM zone_intelligence ORDER BY health_score DESC');
+        res.json({ zones: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Platform stats — admin only
+app.get('/api/intelligence/platform', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    try {
+        const { rows } = await pool.query('SELECT * FROM platform_stats');
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Provider intelligence — public
+app.get('/api/intelligence/provider/:id', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM provider_intelligence WHERE provider_id = $1',
+            [req.params.id]
+        );
+        if (!rows[0]) return res.status(404).json({ error: 'Provider not found' });
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Trending services — optionally filtered by zone
+app.get('/api/intelligence/trending', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT * FROM trending_services_by_zone
+             WHERE ($1::uuid IS NULL OR zone_id = $1) AND rank <= 3
+             ORDER BY zone_id, rank`,
+            [req.query.zone_id || null]
+        );
+        res.json({ trending: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Financial health — admin only
+app.get('/api/intelligence/financial', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    try {
+        const { rows } = await pool.query('SELECT * FROM financial_health');
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// BNPL eligibility — for authenticated user
+app.get('/api/intelligence/bnpl-eligibility', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM compute_bnpl_eligibility($1)',
+            [req.session.user.id]
+        );
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.use('/api/financial', requireAuth, financialRouter);
 app.use('/api/notifications', requireAuth, notificationsRouter);
 app.use('/api/zones', zoneRouter);

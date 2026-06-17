@@ -1,149 +1,597 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+/* ─── Cinematic timeline ──────────────────────────────────────────────────
+   Architecture: pure CSS @keyframes driven by className toggling on a
+   master rAF timeline. No React state transitions → zero repaints between
+   animation frames → silky GPU-only compositing.
+   ───────────────────────────────────────────────────────────────────────── */
+
+const CSS = `
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  .cin-root {
+    position: fixed; inset: 0; z-index: 99999;
+    background: #000;
+    font-family: 'Inter','SF Pro Display',system-ui,sans-serif;
+    overflow: hidden;
+    height: 100dvh;
+    contain: strict;
+  }
+
+  /* ── Grain ── */
+  .cin-grain {
+    position: absolute; inset: 0; pointer-events: none; z-index: 40;
+    mix-blend-mode: overlay; opacity: .45;
+  }
+
+  /* ── Scan lines ── */
+  .cin-scan {
+    position: absolute; inset: 0; pointer-events: none; z-index: 8;
+    background-image: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(255,255,255,.012) 2px, rgba(255,255,255,.012) 4px
+    );
+  }
+
+  /* ── Vignette ── */
+  .cin-vignette {
+    position: absolute; inset: 0; pointer-events: none; z-index: 9;
+    background: radial-gradient(ellipse 100% 100% at 50% 50%,
+      transparent 28%, rgba(0,0,0,.92) 100%);
+  }
+
+  /* ── Letterbox ── */
+  .cin-lb-top, .cin-lb-bot {
+    position: absolute; left: 0; right: 0; background: #000;
+    z-index: 50; pointer-events: none;
+    height: clamp(40px, 9%, 78px);
+  }
+  .cin-lb-top { top: 0; }
+  .cin-lb-bot { bottom: 0; }
+
+  /* ── Flash overlay ── */
+  .cin-flash {
+    position: absolute; inset: 0; z-index: 60;
+    background: #fff; pointer-events: none;
+    opacity: 0;
+  }
+  .cin-flash.cut { animation: flashCut .18s ease-out forwards; }
+  .cin-flash.white { animation: flashWhite .55s ease-out forwards; }
+  @keyframes flashCut {
+    0%  { opacity: .9 }
+    100%{ opacity: 0 }
+  }
+  @keyframes flashWhite {
+    0%  { opacity: 1 }
+    60% { opacity: .15 }
+    100%{ opacity: 0 }
+  }
+
+  /* ── Light sweep ── */
+  .cin-sweep {
+    position: absolute; top: -20%; bottom: -20%;
+    width: 28%; left: -28%;
+    background: linear-gradient(90deg,
+      transparent 0%, rgba(255,255,255,.04) 40%,
+      rgba(255,255,255,.13) 50%, rgba(255,255,255,.04) 60%, transparent 100%);
+    transform: skewX(-10deg) translateZ(0);
+    pointer-events: none; z-index: 7;
+    will-change: left;
+  }
+  .cin-sweep.go { animation: sweep 1.1s cubic-bezier(.25,.46,.45,.94) forwards; }
+  @keyframes sweep { to { left: 115%; } }
+
+  /* ── Chromatic aberration on impact ── */
+  .cin-ca {
+    position: absolute; inset: 0; pointer-events: none; z-index: 6;
+    opacity: 0;
+  }
+  .cin-ca.go {
+    animation: caFlash .6s ease-out forwards;
+  }
+  @keyframes caFlash {
+    0%   { opacity: 1; filter: url(#ca); }
+    100% { opacity: 0; }
+  }
+
+  /* ── Scene wrapper ── */
+  .cin-scene {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    padding: clamp(52px,11%,96px) clamp(20px,6vw,60px);
+  }
+
+  /* ═══ SCENE 1 — Studio card ══════════════════════════════════════════════ */
+  .s1-wrap {
+    text-align: center;
+    opacity: 0;
+    animation: s1In .9s cubic-bezier(.16,1,.3,1) .08s forwards;
+  }
+  .s1-wrap.out { animation: s1Out .5s ease-in forwards; }
+  @keyframes s1In {
+    from { opacity:0; filter:blur(12px); transform:scale(.93) translateZ(0); }
+    to   { opacity:1; filter:blur(0);   transform:scale(1)   translateZ(0); }
+  }
+  @keyframes s1Out {
+    to { opacity:0; filter:blur(6px); transform:scale(1.04) translateZ(0); }
+  }
+  .s1-line-top, .s1-line-bot {
+    width: 1px; background: linear-gradient(180deg,transparent,rgba(255,255,255,.32));
+    margin: 0 auto; height: 0;
+  }
+  .s1-line-top { animation: lineGrow clamp(0.4s,0.5s,0.6s) ease-out .3s forwards; }
+  .s1-line-bot {
+    background: linear-gradient(180deg,rgba(255,255,255,.32),transparent);
+    animation: lineGrow .4s ease-out .7s forwards;
+    margin-top: clamp(18px,4vw,26px);
+  }
+  @keyframes lineGrow { to { height: clamp(36px,7vw,56px); } }
+  .s1-studio {
+    font-size: clamp(1.2rem,5vw,2.5rem); font-weight: 800;
+    letter-spacing: -.04em; color: #fff; line-height: 1;
+    margin: clamp(18px,4vw,26px) 0 10px;
+    opacity: 0; animation: fadeUp .55s ease-out .45s forwards;
+  }
+  .s1-presents {
+    font-size: clamp(9px,2vw,11px); letter-spacing: .44em;
+    color: rgba(255,255,255,.28); text-transform: uppercase; font-weight: 400;
+    opacity: 0; animation: fadeUp .5s ease-out .65s forwards;
+  }
+  @keyframes fadeUp {
+    from { opacity:0; transform:translateY(14px) translateZ(0); }
+    to   { opacity:1; transform:translateY(0)    translateZ(0); }
+  }
+
+  /* ═══ SCENE 2 — Problem statements ═══════════════════════════════════════ */
+  .s2-wrap { max-width: min(600px,90vw); width: 100%; }
+  .s2-line { overflow: hidden; margin-bottom: clamp(10px,2.8vw,18px); }
+  .s2-text {
+    font-size: clamp(1rem,3.6vw,1.6rem); font-weight: 700;
+    letter-spacing: -.03em; line-height: 1.2;
+    background: linear-gradient(180deg,#fff 0%,rgba(255,255,255,.7) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    display: block;
+    transform: translateY(110%) translateZ(0); opacity: 0;
+    will-change: transform, opacity;
+  }
+  .s2-text.dim {
+    background: linear-gradient(180deg,rgba(255,255,255,.78) 0%,rgba(255,255,255,.38) 100%);
+    -webkit-background-clip: text; background-clip: text;
+  }
+  .s2-text.p0 { animation: slideUp .55s cubic-bezier(.16,1,.3,1) .1s forwards; }
+  .s2-text.p1 { animation: slideUp .55s cubic-bezier(.16,1,.3,1) .52s forwards; }
+  .s2-text.p2 { animation: slideUp .55s cubic-bezier(.16,1,.3,1) .92s forwards; }
+  @keyframes slideUp {
+    to { transform: translateY(0) translateZ(0); opacity:1; }
+  }
+  .s2-rule {
+    height: 1px; margin-top: clamp(20px,5vw,36px);
+    background: linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent);
+    transform: scaleX(0); transform-origin: left;
+    animation: ruleIn .6s ease-out 1.5s forwards;
+  }
+  @keyframes ruleIn { to { transform: scaleX(1); } }
+  .s2-wrap.out .s2-text { animation: fadeOut .4s ease-in forwards !important; }
+  .s2-wrap.out .s2-rule { animation: fadeOut .4s ease-in forwards !important; }
+  @keyframes fadeOut { to { opacity:0; } }
+
+  /* ═══ SCENE 3 — TRUVORNEX reveal ═════════════════════════════════════════ */
+  .s3-wrap { text-align: center; width: 100%; }
+  .s3-wordmark {
+    display: block;
+    font-size: clamp(3.5rem,14vw,110px); font-weight: 900;
+    letter-spacing: -.04em; line-height: 1;
+    background: linear-gradient(180deg,#fff 0%,rgba(255,255,255,.55) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: clamp(12px,3vw,20px);
+    opacity: 0; filter: blur(40px);
+    transform: scale(.82) translateZ(0);
+    will-change: transform, filter, opacity;
+    animation: wordmarkIn 1.6s cubic-bezier(.16,1,.3,1) .1s forwards;
+  }
+  @keyframes wordmarkIn {
+    to { opacity:1; filter:blur(0); transform:scale(1) translateZ(0); }
+  }
+  .s3-wordmark.out {
+    animation: wordmarkOut .7s cubic-bezier(.4,0,1,1) forwards;
+  }
+  @keyframes wordmarkOut {
+    to { opacity:0; filter:blur(16px); transform:scale(1.08) translateZ(0); }
+  }
+  .s3-rule {
+    width: clamp(140px,42vw,400px); height: 1px; margin: 0 auto clamp(12px,3vw,18px);
+    background: linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);
+    transform: scaleX(0); transform-origin: center;
+    animation: ruleIn .7s ease-out 1s forwards;
+  }
+  .s3-sub {
+    font-size: clamp(9px,2.2vw,13px); letter-spacing: .38em;
+    text-transform: uppercase; font-weight: 300;
+    color: rgba(255,255,255,.34);
+    opacity: 0; transform: translateY(10px) translateZ(0);
+    animation: fadeUp .9s cubic-bezier(.16,1,.3,1) 1.1s forwards;
+  }
+
+  /* ═══ SCENE 4 — Fast cuts ════════════════════════════════════════════════ */
+  .s4-scene { text-align: center; width: 100%; padding: 0 clamp(8px,4vw,40px); }
+  .s4-counter {
+    font-size: clamp(9px,2vw,11px); letter-spacing: .35em;
+    color: rgba(255,255,255,.18); text-transform: uppercase;
+    margin-bottom: clamp(14px,3.5vw,22px); font-weight: 500;
+    opacity: 0; animation: cutIn .18s ease-out forwards;
+  }
+  .s4-word {
+    display: block;
+    font-size: clamp(2.2rem,10vw,88px); font-weight: 900;
+    letter-spacing: -.04em; line-height: .95;
+    background: linear-gradient(180deg,#fff 0%,rgba(255,255,255,.6) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: clamp(8px,2vw,12px);
+    opacity: 0; transform: translateY(22px) scale(.94) translateZ(0);
+    will-change: transform, opacity;
+    animation: cutIn .2s cubic-bezier(.16,1,.3,1) .02s forwards;
+  }
+  .s4-sub {
+    font-size: clamp(10px,2.4vw,13px); font-weight: 300;
+    letter-spacing: .2em; color: rgba(255,255,255,.26);
+    text-transform: uppercase;
+    opacity: 0; animation: cutIn .22s ease-out .06s forwards;
+  }
+  @keyframes cutIn {
+    to { opacity: 1; transform: translateY(0) scale(1) translateZ(0); }
+  }
+  .s4-progress {
+    position: absolute;
+    bottom: clamp(46px,10%,84px); left: 0; right: 0;
+    display: flex; justify-content: center;
+    gap: clamp(3px,1vw,5px); z-index: 15;
+  }
+  .s4-pip {
+    height: 2px; border-radius: 1px;
+    width: clamp(14px,3.5vw,22px);
+    background: rgba(255,255,255,.08);
+    transition: background .28s ease, box-shadow .28s ease;
+  }
+  .s4-pip.active {
+    background: rgba(255,255,255,.7);
+    box-shadow: 0 0 8px rgba(255,255,255,.5);
+  }
+
+  /* ═══ SCENE 5 — Final CTA ════════════════════════════════════════════════ */
+  .s5-wrap {
+    text-align: center;
+    max-width: min(580px,92vw); width: 100%;
+  }
+  .s5-accent-top {
+    width: 1px; height: 0; margin: 0 auto clamp(22px,5vw,34px);
+    background: linear-gradient(180deg,transparent,rgba(255,255,255,.28));
+    animation: accentGrow .7s ease-out .05s forwards;
+  }
+  @keyframes accentGrow { to { height: clamp(36px,7vw,58px); } }
+  .s5-mask { overflow: hidden; }
+  .s5-mask + .s5-mask { margin-top: 4px; margin-bottom: clamp(22px,5vw,34px); }
+  .s5-h1 {
+    display: block;
+    font-size: clamp(1.8rem,7vw,3.9rem); font-weight: 900;
+    letter-spacing: -.045em; line-height: 1.05;
+    background: linear-gradient(180deg,#fff 0%,rgba(255,255,255,.88) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    transform: translateY(110%) translateZ(0); opacity: 0;
+    animation: slideUp .75s cubic-bezier(.16,1,.3,1) .12s forwards;
+    will-change: transform, opacity;
+  }
+  .s5-h1.dim {
+    background: linear-gradient(180deg,rgba(255,255,255,.65) 0%,rgba(255,255,255,.32) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    animation-delay: .26s;
+  }
+  .s5-rule {
+    height: 1px; margin-bottom: clamp(14px,3.5vw,22px);
+    background: linear-gradient(90deg,transparent,rgba(255,255,255,.16),transparent);
+    transform: scaleX(0); transform-origin: center;
+    animation: ruleIn .7s ease-out .55s forwards;
+  }
+  .s5-tagline {
+    font-size: clamp(9px,2.1vw,11px); letter-spacing: .35em;
+    color: rgba(255,255,255,.24); text-transform: uppercase; font-weight: 400;
+    margin-bottom: clamp(30px,7vw,48px);
+    opacity: 0; animation: fadeUp .6s ease-out .62s forwards;
+  }
+  .s5-btns {
+    display: flex; flex-direction: column;
+    gap: clamp(10px,2.5vw,12px); width: 100%;
+    opacity: 0; transform: translateY(18px) translateZ(0);
+    animation: fadeUp .65s cubic-bezier(.16,1,.3,1) .9s forwards;
+    will-change: transform, opacity;
+  }
+  .s5-btn-primary, .s5-btn-ghost {
+    width: 100%; border: none; cursor: pointer;
+    font-family: inherit; letter-spacing: -.02em;
+    border-radius: clamp(10px,2.5vw,14px);
+    min-height: 52px; padding: clamp(14px,3.5vw,16px) 0;
+    font-size: clamp(13px,3vw,15px); font-weight: 700;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition: box-shadow .22s ease, transform .22s ease, background .22s ease, color .22s ease;
+    will-change: transform;
+  }
+  .s5-btn-primary {
+    background: #fff; color: #000;
+    box-shadow: 0 0 32px rgba(255,255,255,.13);
+  }
+  .s5-btn-primary:hover { box-shadow: 0 0 52px rgba(255,255,255,.28); transform: translateY(-2px); }
+  .s5-btn-primary:active { transform: translateY(0) scale(.98); }
+  .s5-btn-ghost {
+    background: rgba(255,255,255,.04); color: rgba(255,255,255,.68);
+    border: 1px solid rgba(255,255,255,.15); backdrop-filter: blur(8px);
+  }
+  .s5-btn-ghost:hover { background: rgba(255,255,255,.09); color: #fff; }
+  .s5-btn-ghost:active { transform: scale(.98); }
+  .s5-accent-bot {
+    width: 1px; height: 0; margin: clamp(28px,6vw,48px) auto 0;
+    background: linear-gradient(180deg,rgba(255,255,255,.18),transparent);
+    animation: accentGrow .6s ease-out .95s forwards;
+  }
+
+  /* ── Skip ── */
+  .cin-skip {
+    position: absolute;
+    top: clamp(50px,10.5%,76px); right: clamp(20px,5vw,36px);
+    z-index: 55; background: none; border: none; cursor: pointer;
+    color: rgba(255,255,255,.2); font-family: inherit;
+    font-size: clamp(10px,2vw,11px); letter-spacing: .15em;
+    font-weight: 500; text-transform: uppercase;
+    padding: 10px 4px; min-height: 44px; min-width: 44px;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+    transition: color .2s ease;
+  }
+  .cin-skip:hover { color: rgba(255,255,255,.55); }
+
+  /* ── Master exit ── */
+  .cin-root.exit { animation: rootExit .65s cubic-bezier(.4,0,1,1) forwards; }
+  @keyframes rootExit {
+    to { opacity: 0; }
+  }
+`;
+
 const CUTS = [
-    { word: 'SERVICES',     sub: 'Book in 60 seconds' },
-    { word: 'TRANSPORT',    sub: 'Rides on demand' },
-    { word: 'COMMITTEE',    sub: 'Community fund' },
-    { word: 'MARKETPLACE',  sub: 'Local commerce' },
-    { word: 'BLOOD NETWORK',sub: 'Life, shared' },
-    { word: 'TOOL LIBRARY', sub: 'Borrow anything' },
-    { word: 'NEIGHBORHOOD', sub: 'One OS for all' },
-    { word: 'SIMON AI',     sub: 'Your intelligent city' },
+    { word: 'SERVICES',      sub: 'Book in 60 seconds' },
+    { word: 'TRANSPORT',     sub: 'Rides on demand' },
+    { word: 'COMMITTEE',     sub: 'Community fund' },
+    { word: 'MARKETPLACE',   sub: 'Local commerce' },
+    { word: 'BLOOD NETWORK', sub: 'Life, shared' },
+    { word: 'TOOL LIBRARY',  sub: 'Borrow anything' },
+    { word: 'NEIGHBORHOOD',  sub: 'One OS for all' },
+    { word: 'SIMON AI',      sub: 'Your intelligent city' },
 ];
 
-function useFilmGrain(ref) {
+function useGrain(ref) {
     useEffect(() => {
         const canvas = ref.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        let alive = true, raf;
-        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        let live = true, raf;
+        const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
         resize();
         window.addEventListener('resize', resize);
-        function tick() {
-            if (!alive) return;
+        const tick = () => {
+            if (!live) return;
             const { width: w, height: h } = canvas;
             const img = ctx.createImageData(w, h);
             const d = img.data;
             for (let i = 0; i < d.length; i += 4) {
                 const v = (Math.random() * 255) | 0;
                 d[i] = d[i + 1] = d[i + 2] = v;
-                d[i + 3] = (Math.random() * 20) | 0;
+                d[i + 3] = (Math.random() * 22) | 0;
             }
             ctx.putImageData(img, 0, 0);
             raf = requestAnimationFrame(tick);
-        }
+        };
         tick();
-        return () => { alive = false; window.removeEventListener('resize', resize); cancelAnimationFrame(raf); };
+        return () => { live = false; window.removeEventListener('resize', resize); cancelAnimationFrame(raf); };
     }, []);
-}
-
-function Sweep({ active }) {
-    const [go, setGo] = useState(false);
-    useEffect(() => { if (active) { const t = setTimeout(() => setGo(true), 50); return () => clearTimeout(t); } }, [active]);
-    return (
-        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 6 }}>
-            <div style={{
-                position: 'absolute', top: '-20%', bottom: '-20%', width: '32%',
-                left: go ? '115%' : '-32%',
-                transition: go ? 'left 1s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
-                background: 'linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.05) 40%,rgba(255,255,255,0.12) 50%,rgba(255,255,255,0.05) 60%,transparent 100%)',
-                transform: 'skewX(-10deg)',
-            }} />
-        </div>
-    );
 }
 
 export default function Onboarding() {
     const navigate = useNavigate();
-    const grainRef = useRef(null);
-    useFilmGrain(grainRef);
+    const rootRef   = useRef(null);
+    const flashRef  = useRef(null);
+    const sweepRef  = useRef(null);
+    const grainRef  = useRef(null);
+    const sceneRef  = useRef(null);
+    const skipRef   = useRef(null);
+    const pipsRef   = useRef(null);
+    const timers    = useRef([]);
+    useGrain(grainRef);
 
-    const [scene, setScene]     = useState(0);
-    const [env, setEnv]         = useState(0);    // master opacity envelope
-    const [sweepA, setSweepA]   = useState(false);
-    const [sweepB, setSweepB]   = useState(false);
+    const T = (fn, ms) => {
+        const id = setTimeout(fn, ms); timers.current.push(id); return id;
+    };
 
-    // scene 1
-    const [s1, setS1] = useState(false);
-    // scene 2
-    const [s2, setS2] = useState([false, false, false]);
-    // scene 3
-    const [s3w, setS3w]   = useState(false);
-    const [s3x, setS3x]   = useState(false);
-    const [s3t, setS3t]   = useState(false);
-    // scene 4
-    const [cut, setCut]   = useState(0);
-    const [cutV, setCutV] = useState(false);
-    // scene 5
-    const [s5a, setS5a]   = useState(false);
-    const [s5b, setS5b]   = useState(false);
-    const [s5c, setS5c]   = useState(false);
-    const [s5btn, setS5btn] = useState(false);
+    const flash = useCallback((type = 'cut') => {
+        const el = flashRef.current;
+        if (!el) return;
+        el.className = 'cin-flash';
+        void el.offsetWidth;
+        el.className = `cin-flash ${type}`;
+    }, []);
 
-    const [skipVis, setSkipVis] = useState(false);
+    const sweep = useCallback(() => {
+        const el = sweepRef.current;
+        if (!el) return;
+        el.className = 'cin-sweep';
+        void el.offsetWidth;
+        el.className = 'cin-sweep go';
+    }, []);
 
-    const done = useCallback((dest) => {
-        setEnv(0);
+    const showSkip = useCallback((v) => {
+        if (skipRef.current) skipRef.current.style.display = v ? 'block' : 'none';
+    }, []);
+
+    const exit = useCallback((dest) => {
         localStorage.setItem('truvornex_intro_seen', '1');
-        setTimeout(() => navigate(dest, { replace: true }), 550);
+        timers.current.forEach(clearTimeout);
+        const root = rootRef.current;
+        if (root) root.classList.add('exit');
+        setTimeout(() => navigate(dest, { replace: true }), 600);
     }, [navigate]);
 
     const goFinal = useCallback(() => {
-        setSkipVis(false); setEnv(0);
+        timers.current.forEach(clearTimeout);
+        timers.current = [];
+        showSkip(false);
+        flash('cut');
+
         setTimeout(() => {
-            setScene(5); setEnv(1); setSweepB(true);
-            setTimeout(() => setS5a(true), 80);
-            setTimeout(() => setS5b(true), 650);
-            setTimeout(() => setS5c(true), 1150);
-            setTimeout(() => setS5btn(true), 1750);
-        }, 350);
+            const s = sceneRef.current;
+            if (!s) return;
+            s.innerHTML = scene5Html();
+            sweep();
+            const p = s.querySelector('.s5-btn-primary');
+            const g = s.querySelector('.s5-btn-ghost');
+            if (p) p.onclick = () => exit('/login');
+            if (g) g.onclick = () => exit('/');
+        }, 160);
+    }, [flash, sweep, exit, showSkip]);
+
+    // ── HTML builders (no state → instant, zero re-render) ──────────────────
+
+    const scene1Html = () => `
+        <div class="s1-wrap" id="s1w">
+            <div class="s1-line-top"></div>
+            <p class="s1-studio">XYLVANTHREX LABS</p>
+            <p class="s1-presents">PRESENTS</p>
+            <div class="s1-line-bot"></div>
+        </div>`;
+
+    const scene2Html = () => `
+        <div class="s2-wrap" id="s2w">
+            <div class="s2-line"><span class="s2-text p0">Your neighborhood has 200 service workers.</span></div>
+            <div class="s2-line"><span class="s2-text dim p1">None of them have a digital identity.</span></div>
+            <div class="s2-line"><span class="s2-text dim p2">None of their work is recorded anywhere.</span></div>
+            <div class="s2-rule"></div>
+        </div>`;
+
+    const scene3Html = () => `
+        <div class="s3-wrap" id="s3w">
+            <span class="s3-wordmark" id="s3word">TRUVORNEX</span>
+            <div class="s3-rule"></div>
+            <p class="s3-sub">The neighborhood operating system</p>
+        </div>`;
+
+    const scene4Html = (cut) => `
+        <div class="s4-scene">
+            <p class="s4-counter">${String(cut + 1).padStart(2, '0')} / ${String(CUTS.length).padStart(2, '0')}</p>
+            <span class="s4-word">${CUTS[cut].word}</span>
+            <p class="s4-sub">${CUTS[cut].sub}</p>
+        </div>`;
+
+    const scene5Html = () => `
+        <div class="s5-wrap">
+            <div class="s5-accent-top"></div>
+            <div class="s5-mask"><span class="s5-h1">Built for the neighborhoods</span></div>
+            <div class="s5-mask"><span class="s5-h1 dim">the world forgot.</span></div>
+            <div class="s5-rule"></div>
+            <p class="s5-tagline">Your neighborhood, connected</p>
+            <div class="s5-btns">
+                <button class="s5-btn-primary">Sign Up Free</button>
+                <button class="s5-btn-ghost">Explore first</button>
+            </div>
+            <div class="s5-accent-bot"></div>
+        </div>`;
+
+    const updatePips = useCallback((cut) => {
+        const el = pipsRef.current;
+        if (!el) return;
+        [...el.children].forEach((pip, i) => {
+            pip.className = 's4-pip' + (i <= cut ? ' active' : '');
+        });
     }, []);
 
+    // ── Master timeline ──────────────────────────────────────────────────────
     useEffect(() => {
-        const T = [];
-        const t = (fn, ms) => { const id = setTimeout(fn, ms); T.push(id); return id; };
+        const s = sceneRef.current;
+        if (!s) return;
 
-        t(() => setEnv(1), 60);
+        // S1 — Studio card (0 – 2.7s)
+        s.innerHTML = scene1Html();
+        T(() => {
+            const w = document.getElementById('s1w');
+            if (w) w.classList.add('out');
+            sweep();
+        }, 2000);
+        T(() => { flash('cut'); }, 2550);
 
-        // scene 1 — 0–2.8s
-        t(() => { setScene(1); setS1(true); }, 120);
-        t(() => setS1(false), 2000);
-        t(() => setSweepA(true), 2100);
-        t(() => setEnv(0), 2350);
+        // S2 — Problem (2.7 – 6s)
+        T(() => {
+            s.innerHTML = scene2Html();
+            showSkip(true);
+        }, 2700);
+        T(() => {
+            const w = document.getElementById('s2w');
+            if (w) w.classList.add('out');
+        }, 5600);
+        T(() => flash('cut'), 5900);
 
-        // scene 2 — 2.8–6s
-        t(() => { setScene(2); setEnv(1); setSkipVis(true); }, 2800);
-        t(() => setS2([true, false, false]), 3000);
-        t(() => setS2([true, true,  false]), 3420);
-        t(() => setS2([true, true,  true ]), 3840);
-        t(() => setS2([false, false, false]), 5500);
-        t(() => setEnv(0), 5800);
+        // S3 — TRUVORNEX (6 – 9.6s)
+        T(() => {
+            s.innerHTML = scene3Html();
+        }, 6050);
+        T(() => { flash('white'); sweep(); }, 6100);
+        T(() => {
+            const w = document.getElementById('s3word');
+            if (w) w.classList.add('out');
+        }, 9100);
+        T(() => flash('cut'), 9400);
 
-        // scene 3 — 6.3–9.5s
-        t(() => { setScene(3); setEnv(1); }, 6300);
-        t(() => setS3w(true), 6420);
-        t(() => setS3t(true), 7150);
-        t(() => { setS3x(true); setS3t(false); }, 8800);
-        t(() => setEnv(0), 9250);
+        // S4 — Fast cuts (9.6 – 14.2s)
+        T(() => {
+            s.innerHTML = scene4Html(0);
+            // build pip bar
+            const pips = pipsRef.current;
+            if (pips) {
+                pips.style.display = 'flex';
+                pips.innerHTML = CUTS.map((_, i) =>
+                    `<div class="s4-pip${i === 0 ? ' active' : ''}"></div>`
+                ).join('');
+            }
+        }, 9600);
 
-        // scene 4 — 9.8–14s
-        t(() => { setScene(4); setEnv(1); setCutV(true); }, 9800);
         CUTS.forEach((_, i) => {
-            t(() => { setCut(i); setCutV(false); }, 9800 + i * 530);
-            t(() => setCutV(true), 9920 + i * 530);
+            if (i === 0) return;
+            T(() => {
+                flash('cut');
+                setTimeout(() => {
+                    s.innerHTML = scene4Html(i);
+                    updatePips(i);
+                }, 90);
+            }, 9600 + i * 570);
         });
-        t(() => setEnv(0), 14100);
 
-        // scene 5 — 14.6s+
-        t(() => { setScene(5); setEnv(1); setSweepB(true); setSkipVis(false); }, 14600);
-        t(() => setS5a(true), 14720);
-        t(() => setS5b(true), 15400);
-        t(() => setS5c(true), 15950);
-        t(() => setS5btn(true), 16750);
+        T(() => {
+            const pips = pipsRef.current;
+            if (pips) pips.style.display = 'none';
+            showSkip(false);
+            flash('cut');
+        }, 14100);
 
-        return () => T.forEach(clearTimeout);
+        // S5 — Final CTA (14.3s+)
+        T(() => {
+            s.innerHTML = scene5Html();
+            sweep();
+            const p = s.querySelector('.s5-btn-primary');
+            const g = s.querySelector('.s5-btn-ghost');
+            if (p) p.onclick = () => exit('/login');
+            if (g) g.onclick = () => exit('/');
+        }, 14320);
+
+        return () => timers.current.forEach(clearTimeout);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -152,369 +600,61 @@ export default function Onboarding() {
         return () => window.removeEventListener('keydown', fn);
     }, [goFinal]);
 
-    const bg = scene === 3 || scene === 5
-        ? 'radial-gradient(ellipse 130% 90% at 50% 50%,#161616 0%,#000 58%)'
-        : '#000';
-
-    /* shared text style helpers */
-    const gradText = (from = '#fff', to = 'rgba(255,255,255,0.65)') => ({
-        background: `linear-gradient(180deg,${from} 0%,${to} 100%)`,
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent',
-        backgroundClip: 'text',
-    });
-
     return (
-        <div style={{
-            position: 'fixed', inset: 0, zIndex: 99999,
-            background: bg, transition: 'background 1.2s ease',
-            fontFamily: "'Inter','SF Pro Display',system-ui,sans-serif",
-            overflow: 'hidden',
-            /* use dynamic viewport height so browser chrome doesn't overlap */
-            height: '100dvh',
-        }}>
-            {/* grain */}
-            <canvas ref={grainRef} style={{
-                position: 'absolute', inset: 0, pointerEvents: 'none',
-                mixBlendMode: 'overlay', opacity: 0.45, zIndex: 30,
-            }} />
+        <>
+            <style>{CSS}</style>
 
-            {/* scan lines */}
-            <div style={{
-                position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 4,
-                backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,0.01) 2px,rgba(255,255,255,0.01) 4px)',
-            }} />
+            {/* SVG filter for chromatic aberration */}
+            <svg style={{ position: 'absolute', width: 0, height: 0 }}>
+                <defs>
+                    <filter id="ca" colorInterpolationFilters="sRGB">
+                        <feColorMatrix type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="red"/>
+                        <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="green"/>
+                        <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="blue"/>
+                        <feBlend in="red" in2="green" mode="screen" result="rg"/>
+                        <feBlend in="rg" in2="blue" mode="screen"/>
+                    </filter>
+                </defs>
+            </svg>
 
-            {/* vignette */}
-            <div style={{
-                position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5,
-                background: 'radial-gradient(ellipse 100% 100% at 50% 50%,transparent 30%,rgba(0,0,0,0.88) 100%)',
-            }} />
+            <div ref={rootRef} className="cin-root">
+                {/* Grain */}
+                <canvas ref={grainRef} className="cin-grain" />
 
-            {/* letterbox — thinner on small phones */}
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 'clamp(36px,8%,72px)', background: '#000', zIndex: 20, pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 'clamp(36px,8%,72px)', background: '#000', zIndex: 20, pointerEvents: 'none' }} />
+                {/* Scan lines */}
+                <div className="cin-scan" />
 
-            {/* sweeps */}
-            <Sweep active={sweepA} />
-            <Sweep active={sweepB} />
+                {/* Vignette */}
+                <div className="cin-vignette" />
 
-            {/* master fade envelope */}
-            <div style={{
-                position: 'absolute', inset: 0, zIndex: 10,
-                opacity: env, transition: 'opacity 0.45s ease',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: `clamp(48px,10%,90px) clamp(20px,6vw,56px)`,
-                boxSizing: 'border-box',
-            }}>
+                {/* Letterbox */}
+                <div className="cin-lb-top" />
+                <div className="cin-lb-bot" />
 
-                {/* ── SCENE 1 ── studio card */}
-                {scene === 1 && (
-                    <div style={{
-                        textAlign: 'center',
-                        opacity: s1 ? 1 : 0,
-                        transform: s1 ? 'scale(1)' : 'scale(0.95)',
-                        transition: 'opacity 0.7s ease, transform 0.7s cubic-bezier(0.16,1,0.3,1)',
-                    }}>
-                        <div style={{ width: 1, height: 'clamp(32px,6vw,52px)', background: 'linear-gradient(180deg,transparent,rgba(255,255,255,0.32))', margin: '0 auto clamp(20px,4vw,28px)' }} />
-                        <p style={{
-                            fontSize: 'clamp(1.2rem,5vw,2.4rem)',
-                            fontWeight: 800, letterSpacing: '-0.04em',
-                            lineHeight: 1, color: '#fff', margin: '0 0 10px',
-                        }}>
-                            XYLVANTHREX LABS
-                        </p>
-                        <p style={{ fontSize: 'clamp(9px,2vw,11px)', letterSpacing: '0.45em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', fontWeight: 400, margin: 0 }}>
-                            PRESENTS
-                        </p>
-                        <div style={{ width: 1, height: 'clamp(32px,6vw,52px)', background: 'linear-gradient(180deg,rgba(255,255,255,0.32),transparent)', margin: 'clamp(20px,4vw,28px) auto 0' }} />
-                    </div>
-                )}
+                {/* Light sweep */}
+                <div ref={sweepRef} className="cin-sweep" />
 
-                {/* ── SCENE 2 ── the problem */}
-                {scene === 2 && (
-                    <div style={{ maxWidth: 'min(600px,90vw)', width: '100%' }}>
-                        {[
-                            'Your neighborhood has 200 service workers.',
-                            'None of them have a digital identity.',
-                            'None of their work is recorded anywhere.',
-                        ].map((text, i) => (
-                            <div key={i} style={{ overflow: 'hidden', marginBottom: 'clamp(12px,3vw,20px)' }}>
-                                <p style={{
-                                    fontSize: 'clamp(1rem,3.5vw,1.55rem)',
-                                    fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.25,
-                                    margin: 0,
-                                    ...gradText(
-                                        i === 0 ? '#fff' : 'rgba(255,255,255,0.78)',
-                                        i === 0 ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.45)'
-                                    ),
-                                    opacity: s2[i] ? 1 : 0,
-                                    transform: s2[i] ? 'translateY(0)' : 'translateY(110%)',
-                                    transition: 'opacity 0.55s ease, transform 0.55s cubic-bezier(0.16,1,0.3,1)',
-                                }}>{text}</p>
-                            </div>
-                        ))}
-                        <div style={{
-                            height: 1, marginTop: 'clamp(20px,4vw,32px)',
-                            background: 'linear-gradient(90deg,transparent,rgba(255,255,255,0.14),transparent)',
-                            opacity: s2[2] ? 1 : 0, transition: 'opacity 0.6s ease 0.3s',
-                        }} />
-                    </div>
-                )}
+                {/* Flash */}
+                <div ref={flashRef} className="cin-flash" />
 
-                {/* ── SCENE 3 ── TRUVORNEX */}
-                {scene === 3 && (
-                    <div style={{ textAlign: 'center', width: '100%' }}>
-                        <h1 style={{
-                            fontSize: s3w ? 'clamp(3.8rem,14vw,110px)' : '14px',
-                            fontWeight: 900,
-                            letterSpacing: s3w ? '-0.04em' : '0.08em',
-                            lineHeight: 1, margin: '0 0 clamp(14px,3vw,20px)',
-                            ...gradText('#fff', 'rgba(255,255,255,0.58)'),
-                            filter: s3w ? (s3x ? 'blur(14px)' : 'blur(0)') : 'blur(20px)',
-                            opacity: s3x ? 0 : (s3w ? 1 : 0),
-                            transform: s3x ? 'scale(1.1) translateY(-12px)' : (s3w ? 'scale(1)' : 'scale(0.85)'),
-                            transition: s3w
-                                ? 'font-size 1.6s cubic-bezier(0.16,1,0.3,1),filter 1.2s ease,opacity 0.7s ease,transform 0.5s ease,letter-spacing 1.6s cubic-bezier(0.16,1,0.3,1)'
-                                : 'opacity 0.3s ease',
-                            display: 'block',
-                        }}>
-                            TRUVORNEX
-                        </h1>
-                        <div style={{
-                            width: 'clamp(140px,40vw,380px)', height: 1,
-                            margin: '0 auto clamp(14px,3vw,20px)',
-                            background: 'linear-gradient(90deg,transparent,rgba(255,255,255,0.38),transparent)',
-                            opacity: s3t ? 1 : 0, transition: 'opacity 0.5s ease',
-                        }} />
-                        <p style={{
-                            fontSize: 'clamp(9px,2.2vw,13px)', letterSpacing: '0.38em',
-                            textTransform: 'uppercase', fontWeight: 300,
-                            color: 'rgba(255,255,255,0.36)', margin: 0,
-                            opacity: s3t ? 1 : 0,
-                            transform: s3t ? 'translateY(0)' : 'translateY(10px)',
-                            transition: 'opacity 0.8s ease, transform 0.8s cubic-bezier(0.16,1,0.3,1)',
-                        }}>
-                            The neighborhood operating system
-                        </p>
-                    </div>
-                )}
+                {/* Progress pips (scene 4) */}
+                <div ref={pipsRef} className="s4-progress" style={{ display: 'none' }} />
 
-                {/* ── SCENE 4 ── fast cuts */}
-                {scene === 4 && (
-                    <div key={cut} style={{ textAlign: 'center', width: '100%', padding: '0 clamp(8px,4vw,40px)', boxSizing: 'border-box' }}>
-                        <p style={{
-                            fontSize: 'clamp(9px,2vw,11px)', letterSpacing: '0.35em',
-                            color: 'rgba(255,255,255,0.18)', textTransform: 'uppercase',
-                            margin: '0 0 clamp(16px,4vw,24px)', fontWeight: 500,
-                            opacity: cutV ? 1 : 0, transition: 'opacity 0.2s ease',
-                        }}>
-                            {String(cut + 1).padStart(2,'0')} / {String(CUTS.length).padStart(2,'0')}
-                        </p>
-                        <h2 style={{
-                            fontSize: 'clamp(2.2rem,10vw,84px)',
-                            fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 0.95,
-                            margin: '0 0 clamp(10px,2.5vw,14px)',
-                            ...gradText('#fff', 'rgba(255,255,255,0.62)'),
-                            opacity: cutV ? 1 : 0,
-                            transform: cutV ? 'translateY(0) scale(1)' : 'translateY(18px) scale(0.95)',
-                            transition: 'opacity 0.22s ease, transform 0.22s cubic-bezier(0.16,1,0.3,1)',
-                        }}>
-                            {CUTS[cut].word}
-                        </h2>
-                        <p style={{
-                            fontSize: 'clamp(10px,2.5vw,13px)', fontWeight: 300,
-                            letterSpacing: '0.2em', color: 'rgba(255,255,255,0.28)',
-                            textTransform: 'uppercase', margin: 0,
-                            opacity: cutV ? 1 : 0, transition: 'opacity 0.25s ease 0.08s',
-                        }}>
-                            {CUTS[cut].sub}
-                        </p>
-                        <div style={{
-                            width: cutV ? `${((cut + 1) / CUTS.length) * 100}%` : '0%',
-                            maxWidth: 'min(260px,70vw)',
-                            height: 1, margin: 'clamp(20px,5vw,28px) auto 0',
-                            background: 'linear-gradient(90deg,rgba(255,255,255,0.08),rgba(255,255,255,0.48),rgba(255,255,255,0.08))',
-                            transition: 'width 0.5s cubic-bezier(0.4,0,0.2,1)',
-                        }} />
-                    </div>
-                )}
-
-                {/* ── SCENE 5 ── final CTA */}
-                {scene === 5 && (
-                    <div style={{
-                        textAlign: 'center',
-                        maxWidth: 'min(580px,92vw)', width: '100%',
-                    }}>
-                        {/* top accent */}
-                        <div style={{
-                            width: 1, height: 'clamp(36px,7vw,56px)',
-                            background: 'linear-gradient(180deg,transparent,rgba(255,255,255,0.28))',
-                            margin: '0 auto clamp(24px,5vw,36px)',
-                            opacity: s5a ? 1 : 0, transition: 'opacity 0.6s ease',
-                        }} />
-
-                        {/* headline line 1 */}
-                        <div style={{ overflow: 'hidden', marginBottom: 4 }}>
-                            <h1 style={{
-                                fontSize: 'clamp(1.85rem,7vw,3.8rem)',
-                                fontWeight: 900, letterSpacing: '-0.045em', lineHeight: 1.06,
-                                margin: 0,
-                                ...gradText('#fff', 'rgba(255,255,255,0.88)'),
-                                opacity: s5a ? 1 : 0,
-                                transform: s5a ? 'translateY(0)' : 'translateY(100%)',
-                                transition: 'opacity 0.8s ease 0.05s, transform 0.8s cubic-bezier(0.16,1,0.3,1) 0.05s',
-                            }}>
-                                Built for the neighborhoods
-                            </h1>
-                        </div>
-
-                        {/* headline line 2 */}
-                        <div style={{ overflow: 'hidden', marginBottom: 'clamp(24px,5vw,36px)' }}>
-                            <h1 style={{
-                                fontSize: 'clamp(1.85rem,7vw,3.8rem)',
-                                fontWeight: 900, letterSpacing: '-0.045em', lineHeight: 1.06,
-                                margin: 0,
-                                ...gradText('rgba(255,255,255,0.68)', 'rgba(255,255,255,0.35)'),
-                                opacity: s5a ? 1 : 0,
-                                transform: s5a ? 'translateY(0)' : 'translateY(100%)',
-                                transition: 'opacity 0.8s ease 0.18s, transform 0.8s cubic-bezier(0.16,1,0.3,1) 0.18s',
-                            }}>
-                                the world forgot.
-                            </h1>
-                        </div>
-
-                        {/* divider */}
-                        <div style={{
-                            height: 1, marginBottom: 'clamp(16px,4vw,24px)',
-                            background: 'linear-gradient(90deg,transparent,rgba(255,255,255,0.16),transparent)',
-                            opacity: s5b ? 1 : 0, transition: 'opacity 0.6s ease',
-                        }} />
-
-                        {/* sub-tagline */}
-                        <p style={{
-                            fontSize: 'clamp(9px,2.2vw,11px)', letterSpacing: '0.35em',
-                            color: 'rgba(255,255,255,0.26)', textTransform: 'uppercase',
-                            fontWeight: 400, margin: '0 0 clamp(32px,7vw,48px)',
-                            opacity: s5b ? 1 : 0, transition: 'opacity 0.7s ease 0.1s',
-                        }}>
-                            Your neighborhood, connected
-                        </p>
-
-                        {/* CTA buttons — stack on mobile, row on wider */}
-                        <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 'clamp(10px,2.5vw,12px)',
-                            width: '100%',
-                            opacity: s5btn ? 1 : 0,
-                            transform: s5btn ? 'translateY(0)' : 'translateY(16px)',
-                            transition: 'opacity 0.6s ease, transform 0.6s cubic-bezier(0.16,1,0.3,1)',
-                        }}>
-                            <button
-                                onClick={() => done('/login')}
-                                style={{
-                                    width: '100%',
-                                    padding: 'clamp(14px,3.5vw,16px) 0',
-                                    borderRadius: 'clamp(10px,2.5vw,14px)',
-                                    border: '1px solid rgba(255,255,255,0.9)',
-                                    background: '#ffffff', color: '#000',
-                                    fontSize: 'clamp(13px,3vw,15px)', fontWeight: 700,
-                                    cursor: 'pointer', fontFamily: 'inherit',
-                                    letterSpacing: '-0.02em',
-                                    boxShadow: '0 0 32px rgba(255,255,255,0.14)',
-                                    touchAction: 'manipulation',
-                                    WebkitTapHighlightColor: 'transparent',
-                                    transition: 'box-shadow 0.2s ease, transform 0.2s ease',
-                                    minHeight: 52,
-                                }}
-                                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 48px rgba(255,255,255,0.28)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 32px rgba(255,255,255,0.14)'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                            >
-                                Sign Up Free
-                            </button>
-                            <button
-                                onClick={() => done('/')}
-                                style={{
-                                    width: '100%',
-                                    padding: 'clamp(14px,3.5vw,16px) 0',
-                                    borderRadius: 'clamp(10px,2.5vw,14px)',
-                                    border: '1px solid rgba(255,255,255,0.16)',
-                                    background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.7)',
-                                    fontSize: 'clamp(13px,3vw,15px)', fontWeight: 500,
-                                    cursor: 'pointer', fontFamily: 'inherit',
-                                    letterSpacing: '-0.01em', backdropFilter: 'blur(8px)',
-                                    touchAction: 'manipulation',
-                                    WebkitTapHighlightColor: 'transparent',
-                                    transition: 'background 0.2s ease, color 0.2s ease',
-                                    minHeight: 52,
-                                }}
-                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = '#fff'; }}
-                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
-                            >
-                                Explore first
-                            </button>
-                        </div>
-
-                        {/* bottom accent */}
-                        <div style={{
-                            width: 1, height: 'clamp(32px,6vw,48px)',
-                            background: 'linear-gradient(180deg,rgba(255,255,255,0.18),transparent)',
-                            margin: 'clamp(32px,6vw,48px) auto 0',
-                            opacity: s5c ? 1 : 0, transition: 'opacity 0.6s ease',
-                        }} />
-                    </div>
-                )}
-            </div>
-
-            {/* Scene 4 — bottom progress pips */}
-            {scene === 4 && (
-                <div style={{
-                    position: 'absolute',
-                    bottom: 'clamp(44px,10%,80px)',
-                    left: 0, right: 0,
-                    display: 'flex', justifyContent: 'center',
-                    gap: 'clamp(3px,1vw,5px)', zIndex: 15,
-                }}>
-                    {CUTS.map((_, i) => (
-                        <div key={i} style={{
-                            height: 2,
-                            width: 'clamp(14px,3.5vw,22px)',
-                            borderRadius: 1,
-                            background: i <= cut ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.1)',
-                            transition: 'background 0.3s ease',
-                            boxShadow: i === cut ? '0 0 8px rgba(255,255,255,0.5)' : 'none',
-                        }} />
-                    ))}
+                {/* Scene content — mutated directly, no React re-renders */}
+                <div className="cin-scene">
+                    <div ref={sceneRef} style={{ width: '100%', display: 'contents' }} />
                 </div>
-            )}
 
-            {/* Skip */}
-            {skipVis && (
+                {/* Skip */}
                 <button
+                    ref={skipRef}
+                    className="cin-skip"
+                    style={{ display: 'none' }}
                     onClick={goFinal}
-                    style={{
-                        position: 'absolute',
-                        top: 'clamp(48px,10%,72px)',
-                        right: 'clamp(20px,5vw,36px)',
-                        zIndex: 50,
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        color: 'rgba(255,255,255,0.22)',
-                        fontSize: 'clamp(10px,2vw,11px)',
-                        letterSpacing: '0.15em', fontFamily: 'inherit',
-                        fontWeight: 500, textTransform: 'uppercase',
-                        padding: '10px 4px',
-                        minHeight: 44, minWidth: 44,
-                        touchAction: 'manipulation',
-                        WebkitTapHighlightColor: 'transparent',
-                        transition: 'color 0.2s ease',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.55)'}
-                    onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.22)'}
                 >
                     Skip →
                 </button>
-            )}
-        </div>
+            </div>
+        </>
     );
 }
