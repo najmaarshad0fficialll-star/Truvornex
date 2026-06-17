@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { MapPin, Clock, CheckCircle, Phone, Star, ArrowLeft, Calendar, Users, ArrowRight } from 'lucide-react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { MapPin, Clock, CheckCircle, Phone, Star, ArrowLeft, Calendar, Users, ArrowRight, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import MapView from '../components/MapView';
 
@@ -37,6 +37,7 @@ const ReviewCard = ({ review }) => (
 
 export default function ProviderDetail() {
     const { providerId } = useParams();
+    const navigate = useNavigate();
     const [provider, setProvider] = useState(null);
     const [services, setServices] = useState([]);
     const [reviews, setReviews] = useState([]);
@@ -171,8 +172,15 @@ export default function ProviderDetail() {
                                     {s.description && <span className="truncate max-w-[150px]">{s.description}</span>}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0">
                                 <span className="font-inter font-black text-xl text-zinc-900 dark:text-zinc-100">${s.price}</span>
+                                <button onClick={() => navigate(`/chat?userId=${provider.user_id}`)}
+                                    className="inline-flex items-center gap-1 rounded-xl text-xs font-semibold transition-all px-3 py-2"
+                                    style={{ backgroundColor: 'var(--color-surface-high)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+                                    onMouseEnter={e => (e.currentTarget.style.opacity = '0.75')}
+                                    onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+                                    <MessageCircle className="h-3 w-3" /> Message
+                                </button>
                                 <Link to={`/book/${provider.id}/${s.id}`}
                                     className="inline-flex items-center gap-1 rounded-xl text-xs font-semibold transition-all px-3 py-2"
                                     style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-on-primary)' }}

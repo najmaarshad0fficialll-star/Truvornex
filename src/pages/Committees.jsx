@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Wallet, Users, Plus, ChevronRight, CheckCircle, Clock, X, Trophy, Calendar, TrendingUp, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -6,6 +7,7 @@ const STATUS_COLORS = { recruiting: '#F59E0B', active: '#10B981', completed: '#6
 const STATUS_LABELS = { recruiting: 'Recruiting', active: 'Active', completed: 'Completed', cancelled: 'Cancelled' };
 
 export default function Committees() {
+    const navigate = useNavigate();
     const [user, setUser] = useState(null);
     const [committees, setCommittees] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -19,7 +21,7 @@ export default function Committees() {
 
     const fetchCommittees = async () => {
         try {
-            const r = await fetch('/api/committees');
+            const r = await fetch('/api/committees', { credentials: 'include' });
             const d = await r.json();
             setCommittees(d.committees || []);
         } catch (_) {}
@@ -28,7 +30,7 @@ export default function Committees() {
 
     useEffect(() => {
         const init = async () => {
-            const r = await fetch('/api/auth/user');
+            const r = await fetch('/api/auth/user', { credentials: 'include' });
             const d = await r.json();
             setUser(d.user);
             await fetchCommittees();
@@ -40,7 +42,7 @@ export default function Committees() {
         setSelected(committee);
         setDetailLoading(true);
         try {
-            const r = await fetch(`/api/committees/${committee.id}`);
+            const r = await fetch(`/api/committees/${committee.id}`, { credentials: 'include' });
             const d = await r.json();
             setDetail(d);
         } catch (_) {}
@@ -48,12 +50,14 @@ export default function Committees() {
     };
 
     const create = async () => {
+        if (!user) { navigate('/login', { state: { from: '/committees' } }); return; }
         if (!form.name || !form.monthly_amount_pkr) { toast.error('Name and monthly amount required'); return; }
         setSaving(true);
         try {
             const r = await fetch('/api/committees', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ ...form, monthly_amount_pkr: parseFloat(form.monthly_amount_pkr) }),
             });
             const d = await r.json();
@@ -61,17 +65,22 @@ export default function Committees() {
                 toast.success('Committee created!');
                 setCreateOpen(false);
                 setForm({ name: '', description: '', monthly_amount_pkr: '', member_limit: 12, total_rounds: 12, payout_day: 1 });
-                fetchCommittees();
+                await fetchCommittees();
+                loadDetail(d.committee);
             } else { toast.error(d.error || 'Failed'); }
         } catch (_) { toast.error('Network error'); }
         setSaving(false);
     };
 
     const join = async (committee) => {
-        if (!user) { toast.error('Please log in'); return; }
+        if (!user) { navigate('/login', { state: { from: '/committees' } }); return; }
         setJoining(committee.id);
         try {
-            const r = await fetch(`/api/committees/${committee.id}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            const r = await fetch(`/api/committees/${committee.id}/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+            });
             const d = await r.json();
             if (d.success) {
                 toast.success(`Joined! You are member #${d.position}`);
@@ -92,7 +101,7 @@ export default function Committees() {
                         <Wallet className="h-6 w-6" style={{ color: '#10B981' }} /> Committees
                     </h1>
                     <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-subtle)' }}>
-                        Digital rotating savings groups (Committees) — earn together, trust together
+                        A committee is a rotating savings group — members contribute monthly, one person gets the full pot each round.
                     </p>
                 </div>
                 {user && (

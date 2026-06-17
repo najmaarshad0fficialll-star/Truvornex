@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
             FROM committees c
             JOIN users u ON u.id = c.organizer_id
             ORDER BY c.created_at DESC
-        `, [req.session.user.id]);
+        `, [req.session?.user?.id || null]);
         res.json({ committees: rows });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -65,7 +65,11 @@ router.post('/', async (req, res) => {
             INSERT INTO committee_members (committee_id, user_id, payout_position)
             VALUES ($1, $2, 1)
         `, [committee.id, userId]);
-        res.json({ committee });
+        const { rows: countRows } = await pool.query(
+            `SELECT COUNT(*) AS member_count FROM committee_members WHERE committee_id = $1`,
+            [committee.id]
+        );
+        res.json({ committee: { ...committee, member_count: countRows[0].member_count } });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

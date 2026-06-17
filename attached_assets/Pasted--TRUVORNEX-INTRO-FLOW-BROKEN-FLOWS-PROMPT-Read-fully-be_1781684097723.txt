@@ -1,0 +1,211 @@
+# TRUVORNEX — INTRO FLOW + BROKEN FLOWS PROMPT
+# Read fully before touching anything.
+
+---
+
+## RULES
+- DO NOT change any color, font, border, shadow, or spacing values anywhere in the project
+- DO NOT install any new npm packages — use only what is in package.json
+- DO NOT touch any server route that is already working
+- Every fetch call must include credentials: 'include'
+
+---
+
+## TASK 1 — Full cinematic intro flow (replace everything in src/pages/Onboarding.jsx)
+
+Delete all current content in `src/pages/Onboarding.jsx`. Replace with a completely new component.
+
+This intro plays once when a first-time visitor lands on the site. It is stored in `localStorage` — if they have seen it before, skip straight to `/`.
+
+The intro is a fullscreen dark (#050505) sequence that feels like a video — no static slides, everything is in motion the entire time. No buttons visible until the final scene. Each scene transitions automatically.
+
+**Scene 1 — 0s to 2.5s: The lab origin**
+- Fade in from black over 0.5s
+- Center of screen, white text, large, Space Grotesk bold:
+  `XYLVANTHREX LABS`
+- Below it, small tracking-widest uppercase monospace:
+  `PRESENTS`
+- Subtle scanline texture overlay (CSS only, repeating-linear-gradient)
+- At 2s: fade out everything over 0.5s
+
+**Scene 2 — 2.5s to 5.5s: The problem**
+- Fade in: one line at a time, staggered 0.3s apart, left-aligned, large
+- Line 1: `Your neighborhood has 200 service workers.`
+- Line 2: `None of them have a digital identity.`
+- Line 3: `None of their work is recorded anywhere.`
+- Each line slides in from left (translateX -30px → 0) + fade
+- At 5s: all lines fade out simultaneously
+
+**Scene 3 — 5.5s to 8.5s: The solution word**
+- Single word appears center screen
+- Starts tiny (font-size 12px), scales up to 96px over 1.5s with slight blur clearing
+- Word: `TRUVORNEX`
+- Use font-family: 'Faster One', cursive — import from Google Fonts inline in this component only
+- Below it after 0.5s delay: small text fades in `The neighborhood operating system.`
+- At 8s: scale up slightly and fade out (scale 1 → 1.05, opacity 1 → 0)
+
+**Scene 4 — 8.5s to 12s: What it contains — fast cuts**
+- Each item appears for 0.6s then cuts hard (no fade, instant cut)
+- Dark background, one icon + one word each, centered
+- Item 1: ⚡ SERVICES
+- Item 2: 🏦 WALLET
+- Item 3: 🤝 COMMITTEE
+- Item 4: 🛒 MARKETPLACE
+- Item 5: 🩸 BLOOD NETWORK
+- Item 6: 🔧 TOOL LIBRARY
+- Item 7: 🏘️ NEIGHBORHOOD
+- Item 8: 🤖 SIMON AI
+- Each cut is instant, items scale from 0.9 → 1 over the 0.6s
+- At 12s: cut to black instantly
+
+**Scene 5 — 12s to 15s: The final statement**
+- Black screen, then text fades in center:
+  Large: `Built for the neighborhoods`
+  Large: `the world forgot.`
+- Below, after 1s delay, smaller:
+  `Hyderabad · Helsinki`
+- At 14s: two buttons fade in from bottom:
+  - `Explore` (left, outlined)
+  - `Sign Up` (right, filled white)
+- These are the ONLY interactive elements in the entire intro
+
+**Behavior:**
+- `Explore` → sets `localStorage.setItem('truvornex_intro_seen', '1')` → navigate to `/`
+- `Sign Up` → sets same localStorage → navigate to `/login`
+- If user presses `Escape` at any point → skip to scene 5 immediately
+- Small `Skip →` text in top-right corner, visible from scene 2 onward, same behavior as Escape
+
+**In `src/App.jsx`:**
+Change the `/` route so that if `localStorage.getItem('truvornex_intro_seen')` is NOT set AND user is not logged in → render `<Onboarding />` instead of `<Home />`. Once seen, always go to Home.
+
+---
+
+## TASK 2 — Remove Login.jsx left panel slides entirely
+
+In `src/pages/Login.jsx`, delete the entire SLIDES array and left panel sliding animation. Replace the left panel with a single static layout:
+
+Left panel content (static, no animation):
+```
+[Top] TRUVORNEX wordmark — Space Grotesk bold, white
+[Middle] "Your neighborhood, connected." — Faster One font, large, white
+[Below] Three lines of small text:
+  Services · Transport · Committee · Marketplace
+  Blood Network · Tool Library · Skill Swap · Events
+  Powered by Simon AI · Built by Xylvanthrex Labs
+[Bottom] Small: "Launching in Hyderabad & Helsinki"
+```
+
+Remove all fake stats (2,400+, 4.9★, 15K+, etc.) — do not replace with anything.
+
+Fix the Sign In / Sign Up button: it is currently white background. Change to:
+`background: transparent; border: 1px solid rgba(255,255,255,0.2); color: white;`
+On hover: `background: rgba(255,255,255,0.08)`
+
+---
+
+## TASK 3 — Fix Committee creation (currently unclear/broken)
+
+**Problem:** Users cannot easily understand how to create or join a committee. The create form exists but `credentials: 'include'` may be missing and the join flow is confusing.
+
+In `src/pages/Committees.jsx`:
+- Add `credentials: 'include'` to ALL fetch calls (create, join, list, detail)
+- After creating a committee, automatically refresh the list and open the new committee's detail modal
+- If user is not logged in and clicks "Create" or "Join" → redirect to `/login` with `state: { from: '/committees' }`
+- Add a visible explainer at the top of the page (one line only, no styling changes):
+  `"A committee is a rotating savings group — members contribute monthly, one person gets the full pot each round."`
+
+In `server/committee.js`, confirm `POST /api/committees` returns the full committee object with `member_count` field. If not, add it:
+```js
+const { rows } = await pool.query(`
+    SELECT c.*, COUNT(cm.id) AS member_count
+    FROM committees c
+    LEFT JOIN committee_members cm ON cm.committee_id = c.id
+    WHERE c.id = $1
+    GROUP BY c.id
+`, [newCommittee.id]);
+res.json({ committee: rows[0] });
+```
+
+---
+
+## TASK 4 — Fix Wallet (cannot access after signup)
+
+In `server/wallet.js`, `GET /` route — add auto-creation before querying:
+```js
+await pool.query(
+    `INSERT INTO wallets (user_id, balance, currency) VALUES ($1, 0, 'PKR') ON CONFLICT (user_id, currency) DO NOTHING`,
+    [userId]
+);
+```
+
+In `src/pages/Wallet.jsx`, add `credentials: 'include'` to every fetch call. The wallet fetch on mount is likely missing it — find the `fetchWallet` function and add it to every call inside.
+
+---
+
+## TASK 5 — Fix Marketplace listing creation
+
+In `src/pages/Marketplace.jsx`, find the create listing submit handler. Confirm the fetch is:
+```js
+const r = await fetch('/api/marketplace', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ title, description, price_pkr, category, condition, negotiable })
+});
+```
+If `credentials: 'include'` is missing, add it. Also add it to the "my listings" and "my orders" fetch calls.
+
+After a listing is created successfully, close the modal and switch to the "My Listings" tab automatically.
+
+---
+
+## TASK 6 — Fix Chat (users cannot start a conversation)
+
+Problem: there is no way for a customer to start a chat with a provider from the provider's profile page.
+
+In `src/pages/ProviderDetail.jsx`, add a "Message" button next to the "Book" button:
+```jsx
+<button onClick={() => navigate(`/chat?userId=${provider.user_id}`)}>
+    Message
+</button>
+```
+
+In `src/pages/Chat.jsx`, the deep-link flow already handles `?userId=` — confirm it reads `new URLSearchParams(window.location.search).get('userId')` on mount and auto-opens that conversation. If not, add it.
+
+Also in `server/chat.js`, add a missing route that Chat.jsx calls:
+```js
+router.get('/users', async (req, res) => {
+    const { q } = req.query;
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, full_name, email, avatar_url, role FROM users
+             WHERE (full_name ILIKE $1 OR email ILIKE $1) AND id != $2 LIMIT 20`,
+            [`%${q || ''}%`, req.session.user.id]
+        );
+        res.json({ users: rows });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+```
+
+---
+
+## TASK 7 — Fix Profile (empty after signup)
+
+In `server/index.js`, in the signup route after user is created, add:
+```js
+await pool.query(
+    `INSERT INTO wallets (user_id, balance, currency) VALUES ($1, 0, 'PKR') ON CONFLICT DO NOTHING`,
+    [newUser.id]
+);
+```
+
+In `src/pages/CustomerProfile.jsx`, add `credentials: 'include'` to the profile fetch and the profile update PUT call. Also ensure every field renders a fallback if null — no crashes on empty profile.
+
+---
+
+## DO NOT DO
+- Do not change any color values
+- Do not change any existing working page layout
+- Do not add any npm packages
+- Do not touch admin pages
+- Do not change the theme in any way

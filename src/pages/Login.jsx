@@ -1,62 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, Zap, ArrowRight, Loader2, CheckCircle, Building2, Home, Handshake, Rocket, Shield, ChevronRight } from 'lucide-react';
+import { Eye, EyeOff, Zap, ArrowRight, Loader2, CheckCircle, Shield, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
-
-const SLIDES = [
-    {
-        id: 0,
-        badge: 'Welcome',
-        title: 'Your Neighborhood\nOS Has Arrived',
-        subtitle: 'Connecting you with trusted local service providers, powered by Simon AI.',
-        Visual: Building2,
-        accentChar: '01',
-        stats: [
-            { value: '2,400+', label: 'Providers' },
-            { value: '4.9★',   label: 'Avg Rating' },
-            { value: '15K+',   label: 'Jobs Done'  },
-        ],
-    },
-    {
-        id: 1,
-        badge: 'What It Is',
-        title: 'One App for\nEvery Home Need',
-        subtitle: 'From emergency plumbing at 2am to weekly cleaning — book any local service in 60 seconds.',
-        Visual: Home,
-        accentChar: '02',
-        stats: [
-            { value: '60s',  label: 'Avg Booking' },
-            { value: '24/7', label: 'Available'   },
-            { value: '98%',  label: 'On-Time'     },
-        ],
-    },
-    {
-        id: 2,
-        badge: 'Why It Exists',
-        title: 'Community-First\nService Platform',
-        subtitle: "Finding trustworthy help shouldn't take hours of Googling. We built the solution.",
-        Visual: Handshake,
-        accentChar: '03',
-        stats: [
-            { value: '35%',   label: 'Avg Savings'    },
-            { value: '1,200+',label: 'Neighborhoods'  },
-            { value: '100%',  label: 'Insured'        },
-        ],
-    },
-    {
-        id: 3,
-        badge: 'Get Started',
-        title: 'Ready to Transform\nYour Neighborhood?',
-        subtitle: 'Join 2,400+ households already using Truvornex. Takes only 30 seconds.',
-        Visual: Rocket,
-        accentChar: '04',
-        stats: [
-            { value: 'Free', label: 'To Join'    },
-            { value: '30s',  label: 'Setup Time' },
-            { value: '₦0',   label: 'Hidden Fees'},
-        ],
-    },
-];
 
 export default function Login() {
     const navigate = useNavigate();
@@ -73,30 +18,6 @@ export default function Login() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
-
-    const [current, setCurrent] = useState(0);
-    const [animating, setAnimating] = useState(false);
-    const [exitDir, setExitDir] = useState(1);
-    const timerRef = useRef(null);
-
-    const goTo = (idx) => {
-        if (idx === current || idx < 0 || idx >= SLIDES.length || animating) return;
-        setExitDir(idx > current ? 1 : -1);
-        setAnimating(true);
-        setTimeout(() => { setCurrent(idx); setAnimating(false); }, 320);
-    };
-
-    useEffect(() => {
-        timerRef.current = setInterval(() => {
-            setExitDir(1);
-            setAnimating(true);
-            setTimeout(() => {
-                setCurrent(prev => (prev + 1) % SLIDES.length);
-                setAnimating(false);
-            }, 320);
-        }, 4000);
-        return () => clearInterval(timerRef.current);
-    }, []);
 
     useEffect(() => {
         if (user) navigate(from, { replace: true });
@@ -139,21 +60,17 @@ export default function Login() {
         setLoading(false);
     };
 
-    const slide = SLIDES[current];
-    const VisualIcon = slide.Visual;
-
     return (
         <div style={{ minHeight: '100vh', display: 'flex', backgroundColor: 'var(--color-bg)' }}>
 
-            {/* ── Left Panel — Premium Editorial Carousel ── */}
+            {/* ── Left Panel — Static ── */}
             <div className="hidden lg:flex lg:w-[52%]" style={{
                 position: 'relative',
                 overflow: 'hidden',
                 flexDirection: 'column',
             }}>
-                {/* Atmospheric background layers */}
+                {/* Background */}
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg, #07070d 0%, #050508 45%, #080706 100%)' }} />
-
                 {/* Fine grid */}
                 <div style={{
                     position: 'absolute', inset: 0,
@@ -161,49 +78,13 @@ export default function Login() {
                     backgroundSize: '56px 56px',
                     pointerEvents: 'none',
                 }} />
-
-                {/* Warm top glow — gold/champagne undertone */}
+                {/* Glow */}
                 <div style={{
-                    position: 'absolute',
-                    top: -200, left: '40%', transform: 'translateX(-50%)',
+                    position: 'absolute', top: -200, left: '40%', transform: 'translateX(-50%)',
                     width: 750, height: 600,
-                    background: 'radial-gradient(ellipse, rgba(255,240,200,0.045) 0%, transparent 62%)',
+                    background: 'radial-gradient(ellipse, rgba(255,240,200,0.04) 0%, transparent 62%)',
                     pointerEvents: 'none',
                 }} />
-
-                {/* Subtle bottom right glow */}
-                <div style={{
-                    position: 'absolute',
-                    bottom: -120, right: -80,
-                    width: 500, height: 450,
-                    background: 'radial-gradient(ellipse, rgba(180,160,255,0.025) 0%, transparent 65%)',
-                    pointerEvents: 'none',
-                }} />
-
-                {/* Left edge accent line */}
-                <div style={{
-                    position: 'absolute',
-                    left: 0, top: '12%', bottom: '12%', width: 1,
-                    background: 'linear-gradient(to bottom, transparent, rgba(255,220,160,0.15) 35%, rgba(255,220,160,0.15) 65%, transparent)',
-                    pointerEvents: 'none',
-                }} />
-
-                {/* Giant watermark number */}
-                <div style={{
-                    position: 'absolute',
-                    bottom: 60, right: -14,
-                    fontSize: 180,
-                    fontWeight: 900,
-                    color: 'rgba(255,255,255,0.018)',
-                    letterSpacing: '-0.06em',
-                    lineHeight: 1,
-                    fontFamily: "'Plus Jakarta Sans', sans-serif",
-                    pointerEvents: 'none',
-                    userSelect: 'none',
-                    transition: 'all 0.5s ease',
-                }}>
-                    {slide.accentChar}
-                </div>
 
                 {/* Logo */}
                 <div style={{ position: 'relative', zIndex: 10, padding: '36px 44px 0' }}>
@@ -227,181 +108,83 @@ export default function Login() {
                                 fontSize: 8.5, letterSpacing: '0.22em',
                                 color: 'rgba(255,220,160,0.35)', textTransform: 'uppercase',
                                 fontFamily: "'Plus Jakarta Sans', sans-serif",
-                            }}>Service Platform</div>
+                            }}>Neighborhood OS</div>
                         </div>
                     </div>
                 </div>
 
-                {/* Slide content */}
+                {/* Main content */}
                 <div style={{
                     flex: 1, display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', justifyContent: 'center',
-                    padding: '0 52px', position: 'relative', zIndex: 10,
+                    justifyContent: 'center', padding: '0 52px',
+                    position: 'relative', zIndex: 10,
                 }}>
-                    <div style={{
-                        width: '100%', maxWidth: 360,
-                        opacity: animating ? 0 : 1,
-                        transform: animating
-                            ? `translateX(${exitDir > 0 ? '-44px' : '44px'})`
-                            : 'translateX(0)',
-                        transition: 'opacity 0.32s cubic-bezier(0.4,0,0.2,1), transform 0.32s cubic-bezier(0.19,1,0.22,1)',
+                    <style>{`@import url('https://fonts.googleapis.com/css2?family=Faster+One&display=swap');`}</style>
+
+                    {/* Wordmark */}
+                    <p style={{
+                        fontFamily: "'Faster One', cursive, system-ui",
+                        fontSize: 'clamp(2.8rem, 5.5vw, 4.2rem)',
+                        color: '#ffffff',
+                        letterSpacing: '-0.01em',
+                        lineHeight: 1,
+                        marginBottom: 18,
                     }}>
+                        TRUVORNEX
+                    </p>
 
-                        {/* Icon — large, dramatic, with two spinning rings */}
-                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 40 }}>
-                            <div style={{ position: 'relative' }}>
-                                <div style={{
-                                    position: 'absolute', inset: -22,
-                                    borderRadius: '50%',
-                                    border: '1px dashed rgba(255,220,160,0.08)',
-                                    animation: 'lrSpin1 28s linear infinite',
-                                }} />
-                                <div style={{
-                                    position: 'absolute', inset: -10,
-                                    borderRadius: 36,
-                                    border: '1px solid rgba(255,255,255,0.06)',
-                                    animation: 'lrSpin1 18s linear infinite reverse',
-                                }} />
-                                <div style={{
-                                    width: 92, height: 92, borderRadius: 30,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    background: 'linear-gradient(148deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
-                                    border: '1px solid rgba(255,220,160,0.14)',
-                                    boxShadow: '0 0 48px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.1)',
-                                }}>
-                                    <VisualIcon style={{ width: 38, height: 38, color: 'rgba(255,255,255,0.88)', strokeWidth: 1.25 }} />
-                                </div>
-                            </div>
-                        </div>
+                    {/* Tagline */}
+                    <p style={{
+                        fontSize: 'clamp(1.1rem, 2.2vw, 1.5rem)',
+                        fontWeight: 600,
+                        color: 'rgba(255,255,255,0.72)',
+                        letterSpacing: '-0.02em',
+                        lineHeight: 1.35,
+                        marginBottom: 36,
+                        fontFamily: "'Plus Jakarta Sans', sans-serif",
+                    }}>
+                        Your neighborhood, connected.
+                    </p>
 
-                        {/* Editorial rule + badge */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 22 }}>
-                            <div style={{
-                                flex: 1, height: 1,
-                                background: 'linear-gradient(to right, transparent, rgba(255,220,160,0.18))',
-                            }} />
-                            <span style={{
-                                fontSize: 8.5, fontWeight: 700, letterSpacing: '0.24em',
-                                textTransform: 'uppercase', color: 'rgba(255,220,160,0.45)',
+                    {/* Feature lines */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 40 }}>
+                        {[
+                            'Services · Transport · Committee · Marketplace',
+                            'Blood Network · Tool Library · Skill Swap · Events',
+                            'Powered by Simon AI · Built by Xylvanthrex Labs',
+                        ].map((line, i) => (
+                            <p key={i} style={{
+                                fontSize: 11,
+                                color: i === 2 ? 'rgba(255,220,160,0.38)' : 'rgba(255,255,255,0.28)',
+                                letterSpacing: '0.04em',
                                 fontFamily: "'Plus Jakarta Sans', sans-serif",
-                                whiteSpace: 'nowrap',
                             }}>
-                                {slide.badge}
-                            </span>
-                            <div style={{
-                                flex: 1, height: 1,
-                                background: 'linear-gradient(to left, transparent, rgba(255,220,160,0.18))',
-                            }} />
-                        </div>
-
-                        {/* Headline */}
-                        <h1 style={{
-                            fontSize: 'clamp(1.9rem, 3.6vw, 2.65rem)',
-                            fontWeight: 800,
-                            fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
-                            letterSpacing: '-0.045em',
-                            lineHeight: 1.04,
-                            color: '#ffffff',
-                            textAlign: 'center',
-                            marginBottom: 16,
-                            whiteSpace: 'pre-line',
-                        }}>
-                            {slide.title}
-                        </h1>
-
-                        {/* Subtitle */}
-                        <p style={{
-                            fontSize: 12,
-                            lineHeight: 1.78,
-                            color: 'rgba(255,255,255,0.36)',
-                            textAlign: 'center',
-                            margin: '0 auto 32px',
-                            maxWidth: 280,
-                            letterSpacing: '-0.003em',
-                            fontFamily: "'Plus Jakarta Sans', sans-serif",
-                        }}>
-                            {slide.subtitle}
-                        </p>
-
-                        {/* Stats row — editorial stats instead of bullet rows */}
-                        <div style={{
-                            display: 'flex',
-                            border: '1px solid rgba(255,220,160,0.08)',
-                            borderRadius: 18,
-                            overflow: 'hidden',
-                            background: 'rgba(255,255,255,0.018)',
-                            backdropFilter: 'blur(8px)',
-                        }}>
-                            {slide.stats.map(({ value, label }, i) => (
-                                <div key={i} style={{
-                                    flex: 1,
-                                    padding: '15px 6px',
-                                    textAlign: 'center',
-                                    borderRight: i < slide.stats.length - 1
-                                        ? '1px solid rgba(255,220,160,0.08)'
-                                        : 'none',
-                                }}>
-                                    <div style={{
-                                        fontSize: 17, fontWeight: 800,
-                                        color: '#ffffff',
-                                        letterSpacing: '-0.04em',
-                                        fontFamily: "'Plus Jakarta Sans', sans-serif",
-                                        lineHeight: 1.1,
-                                    }}>
-                                        {value}
-                                    </div>
-                                    <div style={{
-                                        fontSize: 8.5, color: 'rgba(255,220,160,0.35)',
-                                        letterSpacing: '0.1em',
-                                        textTransform: 'uppercase', marginTop: 5,
-                                        fontFamily: "'Plus Jakarta Sans', sans-serif",
-                                    }}>
-                                        {label}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Bottom — dots + Simon status */}
-                <div style={{ position: 'relative', zIndex: 10, padding: '0 44px 36px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {SLIDES.map((_, i) => (
-                            <button key={i} onClick={() => goTo(i)} style={{
-                                height: 3,
-                                width: i === current ? 26 : 3,
-                                borderRadius: 999, border: 'none', cursor: 'pointer', padding: 0,
-                                background: i === current
-                                    ? 'rgba(255,220,160,0.8)'
-                                    : i < current
-                                        ? 'rgba(255,220,160,0.22)'
-                                        : 'rgba(255,255,255,0.08)',
-                                transition: 'all 0.45s cubic-bezier(0.19,1,0.22,1)',
-                                boxShadow: i === current ? '0 0 10px rgba(255,200,100,0.3)' : 'none',
-                            }} />
+                                {line}
+                            </p>
                         ))}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{
-                            width: 5, height: 5, borderRadius: '50%',
-                            background: '#22c55e',
-                            boxShadow: '0 0 8px rgba(34,197,94,0.55)',
-                            animation: 'pulse 2s ease-in-out infinite',
-                        }} />
-                        <span style={{
-                            fontSize: 8.5, letterSpacing: '0.2em',
-                            textTransform: 'uppercase', color: 'rgba(255,255,255,0.24)',
-                            fontFamily: "'Plus Jakarta Sans', sans-serif",
-                        }}>
-                            Simon AI · Online
-                        </span>
-                    </div>
                 </div>
 
-                <style>{`
-                    @keyframes lrSpin1 { to { transform: rotate(360deg); } }
-                `}</style>
+                {/* Bottom */}
+                <div style={{
+                    position: 'relative', zIndex: 10,
+                    padding: '0 52px 36px',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                    <div style={{
+                        width: 5, height: 5, borderRadius: '50%',
+                        background: '#22c55e',
+                        boxShadow: '0 0 8px rgba(34,197,94,0.55)',
+                        flexShrink: 0,
+                    }} />
+                    <span style={{
+                        fontSize: 9.5, letterSpacing: '0.28em',
+                        textTransform: 'uppercase', color: 'rgba(255,255,255,0.22)',
+                        fontFamily: "'Plus Jakarta Sans', sans-serif",
+                    }}>
+                        Launching in Hyderabad &amp; Helsinki
+                    </span>
+                </div>
             </div>
 
             {/* ── Right Panel — Sign In / Sign Up Form ── */}
@@ -453,8 +236,8 @@ export default function Login() {
                                 cursor: 'pointer', transition: 'all 0.2s ease',
                                 fontFamily: "'Plus Jakarta Sans', sans-serif",
                                 ...(tab === t
-                                    ? { background: 'var(--color-surface)', color: 'var(--color-primary)', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }
-                                    : { background: 'transparent', color: 'var(--color-text-subtle)' }),
+                                    ? { background: 'transparent', border: '1px solid var(--color-border-strong)', color: 'var(--color-primary)', boxShadow: 'none' }
+                                    : { background: 'transparent', border: 'none', color: 'var(--color-text-subtle)' }),
                             }}>
                                 {t === 'login' ? 'Sign In' : 'Sign Up'}
                             </button>

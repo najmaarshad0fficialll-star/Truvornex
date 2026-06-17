@@ -24,7 +24,7 @@ export default function Chat() {
     const location = useLocation();
 
     const params = new URLSearchParams(location.search);
-    const deepLinkUserId = params.get('user_id');
+    const deepLinkUserId = params.get('userId') || params.get('user_id');
 
     const fetchConversations = useCallback(async () => {
         try {

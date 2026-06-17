@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 import Login from './pages/Login';
 import PageNotFound from './lib/PageNotFound';
@@ -98,7 +98,8 @@ import Committee from './pages/Committee';
 
 
 const AuthenticatedApp = () => {
-    const { isLoadingAuth, authError } = useAuth();
+    const { isLoadingAuth, authError, user } = useAuth();
+    const location = useLocation();
 
     if (isLoadingAuth) {
         return (
@@ -118,6 +119,10 @@ const AuthenticatedApp = () => {
 
     if (authError && authError.type === 'user_not_registered') {
         return <UserNotRegisteredError />;
+    }
+
+    if (!localStorage.getItem('truvornex_intro_seen') && !user && location.pathname === '/') {
+        return <Onboarding />;
     }
 
     return (
