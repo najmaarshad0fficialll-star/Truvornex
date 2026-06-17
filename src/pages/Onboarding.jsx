@@ -15,7 +15,7 @@ const CSS = `
     background: #000;
     font-family: 'Inter','SF Pro Display',system-ui,sans-serif;
     overflow: hidden;
-    height: 100dvh;
+    width: 100%; height: 100dvh;
     contain: strict;
   }
 
@@ -41,14 +41,8 @@ const CSS = `
       transparent 28%, rgba(0,0,0,.92) 100%);
   }
 
-  /* ── Letterbox ── */
-  .cin-lb-top, .cin-lb-bot {
-    position: absolute; left: 0; right: 0; background: #000;
-    z-index: 50; pointer-events: none;
-    height: clamp(40px, 9%, 78px);
-  }
-  .cin-lb-top { top: 0; }
-  .cin-lb-bot { bottom: 0; }
+  /* ── Letterbox (removed — full screen like platform) ── */
+  .cin-lb-top, .cin-lb-bot { display: none; }
 
   /* ── Flash overlay ── */
   .cin-flash {
@@ -99,7 +93,7 @@ const CSS = `
   .cin-scene {
     position: absolute; inset: 0; z-index: 10;
     display: flex; align-items: center; justify-content: center;
-    padding: clamp(52px,11%,96px) clamp(20px,6vw,60px);
+    padding: clamp(64px,12vw,80px) clamp(16px,5vw,48px) clamp(48px,8vw,64px);
   }
 
   /* ═══ SCENE 1 — Studio card ══════════════════════════════════════════════ */
@@ -246,7 +240,7 @@ const CSS = `
   }
   .s4-progress {
     position: absolute;
-    bottom: clamp(46px,10%,84px); left: 0; right: 0;
+    bottom: clamp(20px,5vw,32px); left: 0; right: 0;
     display: flex; justify-content: center;
     gap: clamp(3px,1vw,5px); z-index: 15;
   }
@@ -338,10 +332,40 @@ const CSS = `
     animation: accentGrow .6s ease-out .95s forwards;
   }
 
+  /* ── Logo (top-right) ── */
+  .cin-logo {
+    position: absolute;
+    top: clamp(12px,3vw,18px); right: clamp(12px,3vw,20px);
+    z-index: 55; display: flex; align-items: center; gap: 9px;
+    pointer-events: none;
+  }
+  .cin-logo-icon {
+    width: clamp(34px,9vw,42px); height: clamp(34px,9vw,42px);
+    border-radius: 10px;
+    background: rgba(255,255,255,.13);
+    backdrop-filter: blur(10px);
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(255,255,255,.18);
+    flex-shrink: 0;
+  }
+  .cin-logo-text {
+    display: flex; flex-direction: column; line-height: 1;
+  }
+  .cin-logo-name {
+    font-size: clamp(12px,3vw,15px); font-weight: 900;
+    letter-spacing: -.03em; color: rgba(255,255,255,.95);
+    white-space: nowrap;
+  }
+  .cin-logo-sub {
+    font-size: clamp(8px,2vw,10px); font-weight: 400;
+    letter-spacing: .06em; color: rgba(255,255,255,.38);
+    white-space: nowrap; margin-top: 2px;
+  }
+
   /* ── Skip ── */
   .cin-skip {
     position: absolute;
-    top: clamp(50px,10.5%,76px); right: clamp(20px,5vw,36px);
+    bottom: clamp(20px,5vw,32px); right: clamp(16px,4vw,28px);
     z-index: 55; background: none; border: none; cursor: pointer;
     color: rgba(255,255,255,.2); font-family: inherit;
     font-size: clamp(10px,2vw,11px); letter-spacing: .15em;
@@ -627,9 +651,19 @@ export default function Onboarding() {
                 {/* Vignette */}
                 <div className="cin-vignette" />
 
-                {/* Letterbox */}
-                <div className="cin-lb-top" />
-                <div className="cin-lb-bot" />
+                {/* Logo — top-right */}
+                <div className="cin-logo">
+                    <div className="cin-logo-icon">
+                        <svg width="17" height="17" viewBox="0 0 16 16" fill="none">
+                            <path d="M3 4h10M3 8h7M3 12h8" stroke="rgba(255,255,255,0.85)" strokeWidth="1.8" strokeLinecap="round"/>
+                            <circle cx="13" cy="12" r="2.5" fill="rgba(255,255,255,0.7)"/>
+                        </svg>
+                    </div>
+                    <div className="cin-logo-text">
+                        <span className="cin-logo-name">TRUVORNEX</span>
+                        <span className="cin-logo-sub">Service Platform</span>
+                    </div>
+                </div>
 
                 {/* Light sweep */}
                 <div ref={sweepRef} className="cin-sweep" />
