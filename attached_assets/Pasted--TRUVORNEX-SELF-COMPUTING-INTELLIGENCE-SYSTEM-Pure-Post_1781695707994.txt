@@ -1,0 +1,120 @@
+# TRUVORNEX — SELF-COMPUTING INTELLIGENCE SYSTEM
+# Pure PostgreSQL. No AI. No external APIs. System computes itself.
+# Add everything below to the database. No frontend changes. No server changes.
+
+---
+
+## RULE
+Do not touch any frontend file, server route, or existing table structure.
+Only add: triggers, functions, views, materialized views, indexes, and pg_cron jobs.
+Every function must be idempotent — safe to run multiple times.
+
+---
+
+## PART 1 — TRIGGERS (fire automatically on every action)
+
+### 1.1 — Booking completed → recompute trust score + award loyalty + update skill
+```sql
+CREATE OR REPLACE FUNCTION on_booking_completed() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'completed' AND OLD.status != 'completed' THEN
+        PERFORM recompute_trust_score(NEW.provider_id);
+        INSERT INTO loyalty_ledger (user_id, coins, reason, reference_type, reference_id)
+        VALUES (NEW.customer_id, FLOOR(COALESCE(NEW.price_pkr, 0) * 0.05), 'booking_completion', 'booking', NEW.id)
+        ON CONFLICT DO NOTHING;
+        INSERT INTO skill_verifications (provider_id, category, verified_count, last_active_at)
+        VALUES (NEW.provider_id, NEW.service_name, 1, NOW())
+        ON CONFLICT (provider_id, category) DO UPDATE SET
+            verified_count = skill_verifications.verified_count + 1,
+            last_active_at = NOW(), updated_at = NOW();
+        INSERT INTO provider_metrics (provider_id, period, total_bookings, completed_bookings, total_earnings)
+        VALUES (NEW.provider_id, '30d', 1, 1, COALESCE(NEW.price_pkr, 0))
+        ON CONFLICT (provider_id, period) DO UPDATE SET
+            total_bookings = provider_metrics.total_bookings + 1,
+            completed_bookings = provider_metrics.completed_bookings + 1,
+            total_earnings = provider_metrics.total_earnings + COALESCE(NEW.price_pkr, 0),
+            updated_at = NOW();
+        UPDATE provider_trust_scores SET dispute_free_streak = dispute_free_streak + 1
+        WHERE provider_id = NEW.provider_id;
+        INSERT INTO income_snapshots (user_id, period, amount_pkr, transaction_count)
+        VALUES (NEW.provider_id, '30d', COALESCE(NEW.price_pkr, 0), 1)
+        ON CONFLICT (user_id, period) DO UPDATE SET
+            amount_pkr = income_snapshots.amount_pkr + COALESCE(NEW.price_pkr, 0),
+            transaction_count = income_snapshots.transaction_count + 1,
+            computed_at = NOW();
+    END IF;
+    IF NEW.status = 'cancelled' AND OLD.status != 'cancelled' THEN
+        PERFORM recompute_trust_score(NEW.provider_id);
+        UPDATE provider_metrics SET cancelled_bookings = cancelled_bookings + 1, updated_at = NOW()
+        WHERE provider_id = NEW.provider_id AND period = '30d';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_booking_completed ON bookings;
+CREATE TRIGGER trg_booking_completed
+    AFTER UPDATE ON bookings
+    FOR EACH ROW EXECUTE FUNCTION on_booking_completed();
+```
+
+### 1.2 — Review inserted → update avg rating + recompute trust
+```sql
+CREATE OR REPLACE FUNCTION on_review_inserted() RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE providers SET
+        avg_rating = (SELECT AVG(rating) FROM reviews WHERE provider_id = NEW.provider_id),
+        total_reviews = (SELECT COUNT(*) FROM reviews WHERE provider_id = NEW.provider_id)
+    WHERE user_id = NEW.provider_id;
+    PERFORM recompute_trust_score(NEW.provider_id);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_review_inserted ON reviews;
+CREATE TRIGGER trg_review_inserted
+    AFTER INSERT ON reviews
+    FOR EACH ROW EXECUTE FUNCTION on_review_inserted();
+```
+
+### 1.3 — Vouch inserted → update vouches count + recompute trust
+```sql
+CREATE OR REPLACE FUNCTION on_vouch_inserted() RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO provider_trust_scores (provider_id, score, tier, vouches_count)
+    VALUES (NEW.provider_id, 0, 'new', 1)
+    ON CONFLICT (provider_id) DO UPDATE SET
+        vouches_count = (SELECT COUNT(*) FROM provider_vouches WHERE provider_id = NEW.provider_id),
+        last_computed_at = NOW();
+    PERFORM recompute_trust_score(NEW.provider_id);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_vouch_inserted ON provider_vouches;
+CREATE TRIGGER trg_vouch_inserted
+    AFTER INSERT ON provider_vouches
+    FOR EACH ROW EXECUTE FUNCTION on_vouch_inserted();
+```
+
+### 1.4 — Dispute opened → reset provider dispute-free streak
+```sql
+CREATE OR REPLACE FUNCTION on_dispute_opened() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'open' THEN
+        UPDATE provider_trust_scores SET dispute_free_streak = 0
+        WHERE provider_id = NEW.against_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_dispute_opened ON disputes;
+CREATE TRIGGER trg_dispute_opened
+    AFTER INSERT ON disputes
+    FOR EACH ROW EXECUTE FUNCTION on_dispute_opened();
+```
+
+### 1.5 — Committee contribution → track rounds + check payout eligibility
+```sql
+CREATE OR REPLACE FUNCTION on_committee_contribution(...

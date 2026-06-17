@@ -245,70 +245,6 @@ app.post('/api/ai/chat', async (req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
-/* ── Self-Computing Intelligence System ─────────────────────────────────── */
-
-// Zone intelligence — all zones ranked by health score
-app.get('/api/intelligence/zones', async (req, res) => {
-    try {
-        const { rows } = await pool.query('SELECT * FROM zone_intelligence ORDER BY health_score DESC');
-        res.json({ zones: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Platform stats — admin only
-app.get('/api/intelligence/platform', requireAuth, async (req, res) => {
-    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-    try {
-        const { rows } = await pool.query('SELECT * FROM platform_stats');
-        res.json(rows[0]);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Provider intelligence — public
-app.get('/api/intelligence/provider/:id', async (req, res) => {
-    try {
-        const { rows } = await pool.query(
-            'SELECT * FROM provider_intelligence WHERE provider_id = $1',
-            [req.params.id]
-        );
-        if (!rows[0]) return res.status(404).json({ error: 'Provider not found' });
-        res.json(rows[0]);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Trending services — optionally filtered by zone
-app.get('/api/intelligence/trending', async (req, res) => {
-    try {
-        const { rows } = await pool.query(
-            `SELECT * FROM trending_services_by_zone
-             WHERE ($1::uuid IS NULL OR zone_id = $1) AND rank <= 3
-             ORDER BY zone_id, rank`,
-            [req.query.zone_id || null]
-        );
-        res.json({ trending: rows });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Financial health — admin only
-app.get('/api/intelligence/financial', requireAuth, async (req, res) => {
-    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-    try {
-        const { rows } = await pool.query('SELECT * FROM financial_health');
-        res.json(rows[0]);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// BNPL eligibility — for authenticated user
-app.get('/api/intelligence/bnpl-eligibility', requireAuth, async (req, res) => {
-    try {
-        const { rows } = await pool.query(
-            'SELECT * FROM compute_bnpl_eligibility($1)',
-            [req.session.user.id]
-        );
-        res.json(rows[0]);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 app.use('/api/financial', requireAuth, financialRouter);
 app.use('/api/notifications', requireAuth, notificationsRouter);
 app.use('/api/zones', zoneRouter);
@@ -1148,14 +1084,19 @@ function startScheduledJobs() {
         }, 60 * 60 * 1000);
     }, 30 * 60 * 1000);
 
-    // Income snapshots + BNPL overdue + trust score recompute — run once at midnight daily
-    const msUntilMidnight = () => {
+    // ── Daily jobs at midnight ────────────────────────────────────────────────
+    const msUntil = (h, m = 0) => {
         const now = new Date();
-        const midnight = new Date(now);
-        midnight.setHours(24, 0, 0, 0);
-        return midnight.getTime() - now.getTime();
+        const target = new Date(now);
+        target.setHours(h, m, 0, 0);
+        if (target <= now) target.setDate(target.getDate() + 1);
+        return target.getTime() - now.getTime();
     };
+
     setTimeout(function runDailyJobs() {
+        const today = new Date();
+
+        // Income snapshots refresh (daily midnight)
         pool.query(`
             INSERT INTO income_snapshots (user_id, period, amount_pkr, transaction_count, computed_at)
             SELECT provider_id, '30d', COALESCE(SUM(price_pkr), 0), COUNT(*), NOW()
@@ -1167,18 +1108,48 @@ function startScheduledJobs() {
                 computed_at = NOW()
         `).catch(e => console.warn('Income snapshots refresh failed:', e.message));
 
+        // BNPL overdue — notify once per day, deduplicated (daily 9am equivalent)
         pool.query(`
             INSERT INTO notifications (user_id, type, title, body)
-            SELECT user_id, 'bnpl_overdue', 'BNPL Payment Overdue',
-                'Your installment of PKR ' || installment_amount || ' was due on ' || next_due_date || '. Please pay to avoid default.'
-            FROM bnpl_agreements
-            WHERE status = 'active' AND next_due_date < CURRENT_DATE
+            SELECT ba.user_id, 'bnpl_overdue', 'BNPL Payment Overdue',
+                'Your installment of PKR ' || ba.installment_amount || ' was due on ' || ba.next_due_date || '. Please pay to avoid default.'
+            FROM bnpl_agreements ba
+            WHERE ba.status = 'active' AND ba.next_due_date < CURRENT_DATE
+              AND NOT EXISTS (
+                SELECT 1 FROM notifications n
+                WHERE n.user_id = ba.user_id AND n.type = 'bnpl_overdue'
+                  AND n.created_at > NOW() - INTERVAL '20 hours'
+              )
         `).catch(e => console.warn('BNPL overdue check failed:', e.message));
 
-        setTimeout(runDailyJobs, 24 * 60 * 60 * 1000);
-    }, msUntilMidnight());
+        // Weekly trust score full recompute — every Sunday (pg_cron: '0 3 * * 0')
+        if (today.getDay() === 0) {
+            pool.query(`
+                SELECT recompute_trust_score(id) FROM users WHERE role = 'provider'
+            `).catch(e => console.warn('Weekly trust recompute failed:', e.message));
+        }
 
-    console.log('Scheduled intelligence jobs started');
+        // Monthly committee defaulter notifications — 1st of month (pg_cron: '0 10 1 * *')
+        if (today.getDate() === 1) {
+            pool.query(`
+                INSERT INTO notifications (user_id, type, title, body)
+                SELECT cm.user_id, 'committee_missed', 'Committee Contribution Due',
+                    'Your committee contribution is due. Missing payments affect your trust score.'
+                FROM committee_members cm
+                JOIN committees c ON c.id = cm.committee_id
+                WHERE c.status = 'active' AND cm.contributed_rounds < c.current_round
+                  AND NOT EXISTS (
+                    SELECT 1 FROM notifications n
+                    WHERE n.user_id = cm.user_id AND n.type = 'committee_missed'
+                      AND n.created_at > NOW() - INTERVAL '20 days'
+                  )
+            `).catch(e => console.warn('Committee defaulter check failed:', e.message));
+        }
+
+        setTimeout(runDailyJobs, 24 * 60 * 60 * 1000);
+    }, msUntil(0, 0)); // midnight
+
+    console.log('Scheduled intelligence jobs started (7 jobs active)');
 }
 
 if (isProd) {
