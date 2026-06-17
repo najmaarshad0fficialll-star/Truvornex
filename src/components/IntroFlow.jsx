@@ -276,7 +276,7 @@ export default function IntroFlow({ onComplete }) {
         clearTimeout(autoTimer.current);
         setLeaving(true);
         setTimeout(() => {
-            localStorage.setItem('truvornex-intro-seen', '1');
+            localStorage.setItem('truvornex-intro-v2', '1');
             onComplete();
         }, 700);
     };

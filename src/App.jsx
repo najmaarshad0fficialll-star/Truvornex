@@ -12,6 +12,7 @@ import { AuthModalProvider } from '@/lib/AuthModalContext';
 import AuthModal from '@/components/AuthModal';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import SplashScreen from './components/SplashScreen';
+import IntroFlow from './components/IntroFlow';
 import CustomerLayout from './components/CustomerLayout';
 import ProviderLayout from './components/ProviderLayout';
 import AdminLayout from './components/AdminLayout';
@@ -121,10 +122,6 @@ const AuthenticatedApp = () => {
         return <UserNotRegisteredError />;
     }
 
-    if (!localStorage.getItem('truvornex_intro_seen') && !user && location.pathname === '/') {
-        return <Onboarding />;
-    }
-
     return (
         <Routes>
             <Route element={<CustomerLayout />}>
@@ -223,11 +220,17 @@ const AuthenticatedApp = () => {
 };
 
 function App() {
-    const [splashDone, setSplashDone] = useState(() => !!localStorage.getItem('truvornex-splash-seen'));
+    const [splashDone, setSplashDone] = useState(() => !!localStorage.getItem('truvornex-splash-v2'));
+    const [introDone,  setIntroDone]  = useState(() => !!localStorage.getItem('truvornex-intro-v2'));
 
     const handleSplashComplete = () => {
-        localStorage.setItem('truvornex-splash-seen', '1');
+        localStorage.setItem('truvornex-splash-v2', '1');
         setSplashDone(true);
+    };
+
+    const handleIntroComplete = () => {
+        localStorage.setItem('truvornex-intro-v2', '1');
+        setIntroDone(true);
     };
 
     return (
@@ -237,6 +240,7 @@ function App() {
                     <QueryClientProvider client={queryClientInstance}>
                         <SimonProvider>
                             {!splashDone && <SplashScreen onComplete={handleSplashComplete} />}
+                            {splashDone && !introDone && <IntroFlow onComplete={handleIntroComplete} />}
                             <Router>
                                 <AuthenticatedApp />
                                 <AuthModal />
