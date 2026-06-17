@@ -33,47 +33,63 @@ const SLIDES = [
 const SLIDE_DURATION = 5200; // ms per slide before auto-advance
 
 /* ─── Logo particle generator ────────────────────────────────── */
-// Derives particle target positions from the favicon SVG shape:
-// three horizontal lines + a filled circle (32×32 viewBox)
+// Fills the favicon logo shape (32×32) with a dense grid of particles.
+// Each line is a thick filled band; the circle is a solid filled disk.
+// Result: a bold particle sculpture, not a wireframe outline.
 function generateParticles(W, H) {
-    const scale = Math.min(W, H) * 0.85 / 32;
-    const ox = W / 2;     // logo center x on screen
-    const oy = H * 0.42;  // logo center y on screen
+    const scale    = Math.min(W, H) * 0.88 / 32;
+    const ox       = W * 0.56;   // slightly right of center
+    const oy       = H * 0.42;
+    const STEP     = 0.34;       // grid spacing in logo-space units
+    const HALF_T   = 1.5;        // half-thickness of each line band
+
     const pts = [];
 
-    // Sample spacing in logo-space units (tighter = more particles)
-    const STEP = 0.28;
+    // Helper: fill a thick horizontal band between x1→x2, centered at cy
+    const fillBand = (x1, x2, cy) => {
+        for (let x = x1; x <= x2; x += STEP) {
+            for (let y = cy - HALF_T; y <= cy + HALF_T; y += STEP) {
+                pts.push({
+                    tx: ox + (x - 16) * scale,
+                    ty: oy + (y - 16) * scale,
+                });
+            }
+        }
+    };
 
-    // Line 1: y=10, x 8→24
-    for (let x = 8; x <= 24; x += STEP)
-        pts.push({ tx: ox + (x - 16) * scale, ty: oy + (10 - 16) * scale });
+    // Helper: fill a solid disk
+    const fillDisk = (cx, cy, r) => {
+        for (let x = cx - r; x <= cx + r; x += STEP) {
+            for (let y = cy - r; y <= cy + r; y += STEP) {
+                if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) {
+                    pts.push({
+                        tx: ox + (x - 16) * scale,
+                        ty: oy + (y - 16) * scale,
+                    });
+                }
+            }
+        }
+    };
 
-    // Line 2: y=16, x 8→22
-    for (let x = 8; x <= 22; x += STEP)
-        pts.push({ tx: ox + (x - 16) * scale, ty: oy + (16 - 16) * scale });
+    // Three horizontal lines from favicon (stroke-width ≈ 2 → HALF_T covers it)
+    fillBand(8, 24, 10);   // top line
+    fillBand(8, 22, 16);   // middle line
+    fillBand(8, 20, 22);   // bottom line
 
-    // Line 3: y=22, x 8→20
-    for (let x = 8; x <= 20; x += STEP)
-        pts.push({ tx: ox + (x - 16) * scale, ty: oy + (22 - 16) * scale });
+    // Filled circle (cx=24, cy=22, r=4)
+    fillDisk(24, 22, 4);
 
-    // Circle: cx=24, cy=22, r=4 — 40 evenly spaced points
-    const CIRC_PTS = 40;
-    for (let i = 0; i < CIRC_PTS; i++) {
-        const a = (i / CIRC_PTS) * Math.PI * 2;
-        pts.push({
-            tx: ox + (24 + Math.cos(a) * 4 - 16) * scale,
-            ty: oy + (22 + Math.sin(a) * 4 - 16) * scale,
-        });
-    }
-
-    // Initialize each particle scattered near its target
+    // Scatter particles from random positions — they spring into formation on load
     return pts.map(p => ({
-        tx: p.tx, ty: p.ty,
-        x:  p.tx + (Math.random() - 0.5) * W * 0.6,
-        y:  p.ty + (Math.random() - 0.5) * H * 0.6,
-        vx: 0, vy: 0,
-        size:    1.1 + Math.random() * 1.0,
-        opacity: 0.12 + Math.random() * 0.22,
+        tx:          p.tx,
+        ty:          p.ty,
+        x:           p.tx + (Math.random() - 0.5) * W * 0.55,
+        y:           p.ty + (Math.random() - 0.5) * H * 0.55,
+        vx:          0,
+        vy:          0,
+        size:        0.9 + Math.random() * 1.1,       // organic size variation
+        baseOpacity: 0.07 + Math.random() * 0.14,     // subtle, readable
+        phase:       Math.random() * Math.PI * 2,     // offset for breathing
     }));
 }
 
@@ -136,8 +152,8 @@ function LogoParticles() {
         const REPEL_RADIUS  = 110;    // px — cursor influence radius
         const REPEL_STRENGTH = 5.5;   // repulsion force
 
-        // 60 FPS animation loop
-        const animate = () => {
+        // 60 FPS animation loop with breathing pulse
+        const animate = (now) => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             for (const p of state.particles) {
@@ -158,8 +174,11 @@ function LogoParticles() {
                 p.x += p.vx;
                 p.y += p.vy;
 
-                // Draw particle
-                ctx.globalAlpha = p.opacity;
+                // Ambient breathing — slow sine wave offset per particle phase
+                const pulse   = Math.sin(now * 0.00075 + p.phase) * 0.055;
+                const alpha   = Math.max(0.02, Math.min(0.32, p.baseOpacity + pulse));
+
+                ctx.globalAlpha = alpha;
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
                 ctx.fillStyle = '#fff';
